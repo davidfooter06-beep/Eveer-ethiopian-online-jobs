@@ -1,0 +1,2247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#006b3f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="eiverr">
+<meta name="description" content="eiverr – Ethiopia's premier freelance platform. Find work, hire talent, get paid in ETB.">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>eiverr | Ethiopian Freelance Talent</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&family=Noto+Sans+Ethiopic:wght@400;700&display=swap" rel="stylesheet">
+<link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc, collection, addDoc, getDocs, updateDoc, query, orderBy, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBVlsJ3PjzFh5QZQI7qua5jDTRJyaCo2KE",
+    authDomain: "eiveer.firebaseapp.com",
+    projectId: "eiveer",
+    storageBucket: "eiveer.firebasestorage.app",
+    messagingSenderId: "362272024389",
+    appId: "1:362272024389:web:303b06c68d400b5c60402c",
+    measurementId: "G-PEGH0XFBW2"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+
+  // Make available globally
+  const googleProvider = new GoogleAuthProvider();
+  window._fb = { auth, db, storage, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, GoogleAuthProvider, signInWithPopup, googleProvider, doc, setDoc, getDoc, collection, addDoc, getDocs, updateDoc, query, orderBy, where, serverTimestamp };
+
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      window._currentUser = user;
+      // Debounce: if we already just navigated (from doLogin/signInWithGoogle), skip
+      if (window._authNavLock) return;
+      const snap = await getDoc(doc(db, 'users', user.uid));
+      if (snap.exists()) {
+        const profile = snap.data();
+        window._userProfile = profile;
+        // Google/social users who have a displayName but no profileComplete → just go home
+        if (!profile.profileComplete && user.displayName) {
+          // Auto-complete for Google users
+          await setDoc(doc(db,'users',user.uid),{profileComplete:true},{merge:true});
+          profile.profileComplete = true;
+        }
+        if (!profile.profileComplete) {
+          showPage('profileSetupPage');
+        } else {
+          enterHomePage(profile);
+        }
+      } else {
+        // Brand new user from Google - create minimal profile and go home
+        const profile = {
+          displayName: user.displayName || user.email.split('@')[0],
+          email: user.email,
+          photoURL: user.photoURL || '',
+          role: 'freelancer',
+          profileComplete: !!user.displayName,
+          createdAt: serverTimestamp()
+        };
+        await setDoc(doc(db,'users',user.uid), profile);
+        window._userProfile = profile;
+        if (profile.profileComplete) {
+          enterHomePage(profile);
+        } else {
+          showPage('profileSetupPage');
+        }
+      }
+    } else {
+      window._currentUser = null;
+      window._userProfile = null;
+      window._authNavLock = false;
+      showPage('landingPage');
+    }
+  });
+
+  window._fbReady = true;
+</script>
+
+<style>
+:root{
+  --green:#006b3f;--green-d:#004d2c;--gold:#fcd116;--red:#ce1126;
+  --white:#fff;--bg:#f7f8f5;--card:#ffffff;--dark:#0d1a12;
+  --text:#1a1a1a;--muted:#666;--border:#e4e4e4;--r:14px;
+  --font:'Sora',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:var(--font);background:var(--bg);color:var(--text);overflow-x:hidden;cursor:none}
+
+#cur{position:fixed;width:10px;height:10px;background:var(--green);border-radius:50%;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);transition:transform .15s}
+#cur-r{position:fixed;width:30px;height:30px;border:1.5px solid rgba(0,107,63,.4);border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:left .1s,top .1s}
+
+.tibeb{height:5px;background:repeating-linear-gradient(-45deg,var(--green) 0,var(--green) 10px,var(--gold) 10px,var(--gold) 20px,#6d8eac 20px,#5c87c9 30px,var(--red) 30px,var(--red) 40px)}
+
+/* PAGE SYSTEM */
+.page{display:none}
+.page.active{display:block}
+
+/* NAV */
+nav{position:sticky;top:0;z-index:400;background:rgba(255,255,255,.96);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:space-between;padding:0 5%;height:66px;box-shadow:0 1px 0 var(--border)}
+.logo{font-size:1.6rem;font-weight:800;color:var(--green);letter-spacing:-.5px;text-decoration:none;cursor:pointer}
+.logo em{font-style:normal;color:var(--gold)}
+.nav-links{display:flex;gap:28px;list-style:none}
+.nav-links a{text-decoration:none;color:var(--muted);font-size:.90rem;font-weight:600;transition:color .2s}
+.nav-links a:hover{color:var(--green)}
+.nav-right{display:flex;gap:10px}
+.btn{padding:9px 22px;border-radius:50px;font-family:var(--font);font-size:.85rem;font-weight:700;cursor:pointer;border:none;transition:all .25s;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.btn-outline{background:transparent;border:1.5px solid var(--border);color:var(--text)}
+.btn-outline:hover{border-color:var(--green);color:var(--green)}
+.btn-green{background:var(--green);color:#fff}
+.btn-green:hover{background:var(--green-d);box-shadow:0 4px 20px rgba(0,107,63,.3);transform:translateY(-1px)}
+.btn-gold{background:var(--gold);color:var(--dark)}
+.btn-gold:hover{background:#f0c800}
+.btn-lg{padding:14px 32px;font-size:.95rem;border-radius:50px}
+
+/* HERO */
+.hero{padding:40px 10%;display:flex;justify-content:center}
+.hero-wrap{width:100%;max-width:1200px;height:480px;border-radius:24px;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:center;padding:56px}
+.hero-media{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0}
+.hero-overlay{position:absolute;inset:0;background:linear-gradient(120deg,rgba(5,30,16,.88) 45%,rgba(5,30,16,.35) 100%);z-index:1}
+.hero-content{position:relative;z-index:2;color:#fff;max-width:600px}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(252,209,22,.15);border:1px solid rgba(252,209,22,.4);color:var(--gold);padding:5px 14px;border-radius:50px;font-size:.75rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:22px}
+.hero-badge::before{content:'';width:6px;height:6px;background:var(--gold);border-radius:50%;animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.hero-h1{font-size:clamp(2.2rem,4vw,3.5rem);font-weight:800;line-height:1.1;letter-spacing:-.03em;margin-bottom:14px}
+.hero-h1 em{font-style:normal;color:var(--gold)}
+.hero-amh{font-family:'Noto Sans Ethiopic',sans-serif;font-size:1rem;color:rgba(255,255,255,.6);margin-bottom:20px}
+.hero-p{font-size:1.05rem;font-weight:300;color:rgba(255,255,255,.75);margin-bottom:32px;line-height:1.65}
+.hero-search{display:flex;background:rgba(255,255,255,.95);border-radius:50px;overflow:hidden;max-width:480px;box-shadow:0 8px 40px rgba(0,0,0,.25)}
+.hero-search input{flex:1;border:none;padding:15px 22px;font-family:var(--font);font-size:.9rem;outline:none;color:var(--text);background:transparent}
+.hero-search button{background:var(--green);color:#fff;border:none;padding:0 28px;font-family:var(--font);font-weight:700;font-size:.88rem;cursor:pointer;transition:background .2s;border-radius:0 50px 50px 0}
+.hero-search button:hover{background:var(--green-d)}
+.hero-trust{display:flex;gap:28px;margin-top:28px}
+.ht-item .ht-n{font-size:1.5rem;font-weight:800;color:#fff}
+.ht-item .ht-n em{font-style:normal;color:var(--gold)}
+.ht-item .ht-l{font-size:.72rem;color:rgba(255,255,255,.5);letter-spacing:.5px;text-transform:uppercase}
+.media-controls{position:absolute;bottom:18px;right:18px;z-index:3;display:flex;gap:8px}
+.mc-btn{padding:7px 16px;border-radius:50px;font-family:var(--font);font-size:.75rem;font-weight:700;border:1.5px solid rgba(255,255,255,.35);background:rgba(0,0,0,.4);color:#fff;cursor:pointer;backdrop-filter:blur(8px);transition:all .2s}
+.mc-btn:hover,.mc-btn.active{background:var(--green);border-color:var(--green)}
+
+.section{padding:72px 5%;max-width:1280px;margin:0 auto}
+.s-tag{font-size:.72rem;letter-spacing:2.5px;text-transform:uppercase;color:var(--green);font-weight:700;display:block;margin-bottom:10px}
+.s-h2{font-size:clamp(1.7rem,2.8vw,2.4rem);font-weight:800;letter-spacing:-.03em;margin-bottom:10px}
+.s-p{color:var(--muted);font-size:.95rem;line-height:1.7;font-weight:300}
+.rv{opacity:0;transform:translateY(26px);transition:opacity .6s ease,transform .6s ease}
+.rv.in{opacity:1;transform:none}
+
+.cat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:36px}
+.cat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:24px 20px;cursor:pointer;transition:all .3s}
+.cat-card:hover{transform:translateY(-5px);border-color:var(--green);box-shadow:0 12px 32px rgba(0,107,63,.1)}
+.cat-card i{font-size:2rem;color:var(--green);display:block;margin-bottom:14px}
+.cat-card h3{font-size:.95rem;font-weight:700;margin-bottom:4px}
+.cat-card p{font-size:.78rem;color:var(--muted)}
+
+.steps-bg{background:#f0f5f2;padding:72px 5%}
+.steps-inner{max-width:1200px;margin:0 auto}
+.steps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:36px}
+.step-card{background:var(--card);border-radius:var(--r);overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,.05);transition:transform .3s}
+.step-card:hover{transform:translateY(-4px)}
+.step-img{height:190px;overflow:hidden;position:relative;background:linear-gradient(135deg,var(--green-d),var(--green));display:flex;align-items:center;justify-content:center}
+.step-img i{font-size:5rem;color:rgba(255,255,255,.3)}
+.step-num{position:absolute;top:14px;left:14px;width:32px;height:32px;background:var(--green);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:800}
+.step-body{padding:20px}
+.step-body h3{font-size:1rem;font-weight:700;margin-bottom:8px}
+.step-body p{font-size:.85rem;color:var(--muted);line-height:1.6}
+
+.insights{background:var(--dark);color:#b8b7b7;padding:72px 5%;display:flex;justify-content:space-between;align-items:center;gap:50px;margin:60px 5%;border-radius:24px}
+.ins-text{max-width:480px}
+.ins-text h2{font-size:clamp(1.8rem,3vw,2.5rem);font-weight:800;letter-spacing:-.03em;margin-bottom:16px}
+.ins-text p{color:rgba(255,255,255,.55);line-height:1.7;margin-bottom:24px;font-weight:300}
+.calc-box{background:#1a2d20;border:1px solid #2a4030;border-radius:18px;padding:32px;width:380px;flex-shrink:0;text-align:center}
+.calc-box h3{font-size:1rem;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,.7)}
+.calc-price{font-size:2.2rem;font-weight:800;color:var(--gold);margin-bottom:4px}
+.calc-sub{font-size:.78rem;color:rgba(255,255,255,.35);margin-bottom:18px}
+.calc-bar{height:8px;background:linear-gradient(to right,var(--gold),var(--green));border-radius:10px;margin:14px 0}
+.calc-ends{display:flex;justify-content:space-between;font-size:.75rem;color:rgba(255,255,255,.35)}
+
+.cta-wrap{padding:0 5%;margin-bottom:60px}
+.cta-box{background:linear-gradient(135deg,var(--green-d),var(--green));border-radius:24px;padding:70px 60px;text-align:center;color:#fff;position:relative;overflow:hidden}
+.cta-box::before{content:'ኢ';font-family:'Noto Sans Ethiopic',sans-serif;font-size:300px;font-weight:700;position:absolute;right:-40px;top:50%;transform:translateY(-50%);color:rgba(255,255,255,.04);pointer-events:none;line-height:1}
+.cta-box h2{font-size:clamp(2rem,4vw,3rem);font-weight:800;letter-spacing:-.03em;margin-bottom:14px}
+.cta-box p{font-size:1.05rem;color:rgba(255,255,255,.7);margin-bottom:30px;font-weight:300}
+
+footer{background:#0d1a12;color:#ccc;padding:56px 5% 28px}
+.foot-grid{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:40px;margin-bottom:40px;padding-bottom:40px;border-bottom:1px solid rgba(255,255,255,.08)}
+.foot-logo{font-size:1.5rem;font-weight:800;color:#fff;margin-bottom:10px}
+.foot-logo em{font-style:normal;color:var(--gold)}
+.foot-about{font-size:.85rem;color:rgba(255,255,255,.35);line-height:1.65;margin-bottom:18px;font-weight:300}
+.foot-h{font-size:.72rem;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:700;margin-bottom:16px}
+.foot-ul{list-style:none;display:flex;flex-direction:column;gap:10px}
+.foot-ul a{color:rgba(255,255,255,.4);text-decoration:none;font-size:.85rem;transition:color .2s;font-weight:300}
+.foot-ul a:hover{color:var(--gold)}
+.foot-bottom{display:flex;justify-content:space-between;align-items:center}
+.foot-copy{font-size:.78rem;color:rgba(255,255,255,.2)}
+.built-by{font-size:.78rem;color:rgba(252,209,22,.6)}
+
+/* AUTH */
+#authPage{position:fixed;inset:0;z-index:9000;display:flex;opacity:0;pointer-events:none;transition:opacity .4s;-webkit-overflow-scrolling:touch}
+#authPage.show{opacity:1;pointer-events:all}
+#authPage.show .auth-right *{pointer-events:auto}
+.auth-left{width:40%;background:var(--dark);display:flex;flex-direction:column;justify-content:center;padding:60px 52px;position:relative;overflow:hidden;z-index:1;flex-shrink:0}
+.auth-left-bg{position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 20% 30%,rgba(0,107,63,.4),transparent),radial-gradient(ellipse 60% 60% at 80% 70%,rgba(206,17,38,.12),transparent)}
+.auth-left-flag{position:absolute;top:0;left:0;bottom:0;width:6px;background:linear-gradient(to bottom,var(--green) 33.3%,var(--gold) 33.3%,var(--gold) 66.6%,var(--red) 66.6%)}
+.auth-left-content{position:relative;z-index:1}
+.auth-brand{font-size:2rem;font-weight:800;color:#fff;letter-spacing:-.03em;margin-bottom:6px}
+.auth-brand em{font-style:normal;color:var(--gold)}
+.auth-amh{font-family:'Noto Sans Ethiopic',sans-serif;font-size:.9rem;color:rgba(255,255,255,.4);margin-bottom:36px}
+.auth-headline{font-size:clamp(1.6rem,3vw,2.2rem);font-weight:800;color:#fff;line-height:1.15;letter-spacing:-.03em;margin-bottom:14px}
+.auth-dots{display:flex;gap:8px}
+.auth-dot{width:28px;height:6px;border-radius:3px;background:rgba(255,255,255,.18);transition:all .4s}
+.auth-dot.on{background:var(--gold);width:44px}
+.auth-right{flex:1;background:#fff;display:flex;flex-direction:column;justify-content:flex-start;padding:40px 40px 32px;position:relative;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;min-height:0;z-index:2}
+.auth-close{position:absolute;top:20px;right:20px;width:36px;height:36px;border-radius:50%;background:#f4f4f4;border:none;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;transition:background .2s;color:var(--muted)}
+.auth-close:hover{background:#ececec;color:var(--text)}
+.lang-switch{display:flex;gap:8px;margin-bottom:28px}
+.lang-btn{padding:5px 14px;border-radius:50px;font-family:var(--font);font-size:.78rem;font-weight:600;border:1.5px solid var(--border);background:transparent;cursor:pointer;transition:all .2s;color:var(--muted)}
+.lang-btn.on{border-color:var(--green);color:var(--green);background:rgba(0,107,63,.06)}
+.auth-tabs{display:flex;background:#f4f4f4;border-radius:50px;padding:5px;margin-bottom:32px;width:fit-content}
+.auth-tab{padding:10px 28px;border-radius:50px;border:none;font-family:var(--font);font-size:.88rem;font-weight:700;cursor:pointer;background:transparent;color:var(--muted);transition:all .3s}
+.auth-tab.on{background:var(--text);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.15)}
+.auth-title{font-size:1.9rem;font-weight:800;letter-spacing:-.03em;margin-bottom:6px}
+.auth-desc{font-size:.88rem;color:var(--muted);margin-bottom:28px}
+.fgrp{margin-bottom:18px;position:relative;z-index:3}
+.flbl{display:block;font-size:.7rem;letter-spacing:2px;text-transform:uppercase;font-weight:700;color:var(--muted);margin-bottom:8px}
+.finp-wrap{position:relative}
+.finp{width:100%;padding:13px 44px 13px 16px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--font);font-size:16px;color:var(--text);outline:none;transition:all .25s;background:#f9fafb}
+.finp:focus{border-color:var(--green);background:#fff;box-shadow:0 0 0 4px rgba(0,107,63,.08)}
+.finp-icon{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:#ccc;font-size:1.1rem;pointer-events:none;z-index:1}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.f-between{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;font-size:.83rem}
+.f-between a{color:var(--green);text-decoration:none;font-weight:600}
+.fcheck{display:flex;align-items:center;gap:8px;font-size:.83rem;color:var(--muted);cursor:pointer}
+.fcheck input{accent-color:var(--green)}
+.sub-btn{width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:50px;font-family:var(--font);font-size:.95rem;font-weight:800;cursor:pointer;letter-spacing:.3px;transition:all .3s;display:flex;align-items:center;justify-content:center;gap:8px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;position:relative;z-index:3}
+.sub-btn:hover{background:var(--green-d);box-shadow:0 8px 24px rgba(0,107,63,.35);transform:translateY(-1px)}
+.sub-btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.auth-or{text-align:center;position:relative;color:#ccc;font-size:.8rem;margin:20px 0}
+.auth-or::before,.auth-or::after{content:'';position:absolute;top:50%;width:calc(50% - 20px);height:1px;background:var(--border)}
+.auth-or::before{left:0}.auth-or::after{right:0}
+.auth-note{text-align:center;font-size:.83rem;color:var(--muted)}
+.auth-note a{color:var(--green);text-decoration:none;font-weight:700}
+.role-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.role-opt{border:1.5px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;text-align:center;transition:all .25s;font-size:.85rem;font-weight:700;color:var(--muted)}
+.role-opt:hover,.role-opt.on{border-color:var(--green);background:rgba(0,107,63,.05);color:var(--green)}
+.role-opt span{display:block;font-size:1.5rem;margin-bottom:6px}
+.auth-tc{display:none;position:relative}
+.auth-tc.on{display:block}
+.err-msg{color:var(--red);font-size:.8rem;margin-top:8px;display:none}
+.err-msg.show{display:block}
+
+/* ══════════════════════════════════════
+   PROFILE SETUP PAGE
+══════════════════════════════════════ */
+#profileSetupPage{min-height:100vh;background:linear-gradient(135deg,#f7f8f5 0%,#e8f0ec 100%)}
+.psetup-nav{display:flex;align-items:center;justify-content:space-between;padding:0 5%;height:66px;background:rgba(255,255,255,.97);box-shadow:0 1px 0 var(--border)}
+.psetup-wrap{max-width:700px;margin:0 auto;padding:60px 24px}
+.psetup-header{text-align:center;margin-bottom:44px}
+.psetup-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(0,107,63,.1);color:var(--green);padding:6px 16px;border-radius:50px;font-size:.75rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:16px}
+.psetup-header h1{font-size:2rem;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+.psetup-header p{color:var(--muted);font-size:.95rem}
+.psetup-progress{display:flex;align-items:center;gap:0;margin-bottom:44px}
+.psp-step{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative}
+.psp-step::after{content:'';position:absolute;top:16px;left:50%;width:100%;height:2px;background:var(--border);z-index:0}
+.psp-step:last-child::after{display:none}
+.psp-step.done::after{background:var(--green)}
+.psp-num{width:32px;height:32px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:800;background:#fff;position:relative;z-index:1;transition:all .3s}
+.psp-step.active .psp-num{border-color:var(--green);background:var(--green);color:#fff}
+.psp-step.done .psp-num{border-color:var(--green);background:var(--green);color:#fff}
+.psp-lbl{font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+.psp-step.active .psp-lbl,.psp-step.done .psp-lbl{color:var(--green)}
+.psetup-card{background:#fff;border-radius:20px;border:1px solid var(--border);padding:36px;box-shadow:0 4px 24px rgba(0,0,0,.05)}
+.psetup-section{display:none}
+.psetup-section.on{display:block}
+
+/* Photo Upload */
+.photo-upload-area{
+  width:120px;height:120px;border-radius:50%;border:2.5px dashed var(--border);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .3s;margin:0 auto 24px;position:relative;overflow:hidden;
+  background:#f9fafb;
+}
+.photo-upload-area:hover{border-color:var(--green);background:rgba(0,107,63,.04)}
+.photo-upload-area img{width:100%;height:100%;object-fit:cover;display:none}
+.photo-upload-area i{font-size:2rem;color:#ccc}
+.photo-upload-area span{font-size:.7rem;color:var(--muted);margin-top:4px}
+.photo-upload-area input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.photo-hint{text-align:center;font-size:.75rem;color:var(--muted);margin-bottom:24px}
+
+/* Skills tags */
+.tags-input-wrap{border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:6px;cursor:text;transition:border-color .25s}
+.tags-input-wrap:focus-within{border-color:var(--green);box-shadow:0 0 0 4px rgba(0,107,63,.08)}
+.tags-input-wrap input{border:none;outline:none;font-family:var(--font);font-size:.9rem;flex:1;min-width:120px;background:transparent}
+.skill-tag-chip{background:rgba(0,107,63,.1);color:var(--green);border-radius:50px;padding:4px 12px;font-size:.78rem;font-weight:700;display:inline-flex;align-items:center;gap:6px}
+.skill-tag-chip button{background:none;border:none;color:var(--green);cursor:pointer;font-size:.9rem;line-height:1;padding:0}
+
+/* Telegram/phone field */
+.contact-opts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.contact-opt{border:1.5px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;transition:all .25s;font-size:.85rem;font-weight:700;color:var(--muted);text-align:center}
+.contact-opt:hover,.contact-opt.on{border-color:var(--green);background:rgba(0,107,63,.05);color:var(--green)}
+.contact-opt i{font-size:1.4rem;display:block;margin-bottom:6px}
+
+/* Nav between setup steps */
+.psetup-nav-btns{display:flex;justify-content:space-between;align-items:center;margin-top:28px}
+.psetup-skip{background:none;border:none;color:var(--muted);font-family:var(--font);font-size:.85rem;cursor:pointer;text-decoration:underline}
+
+/* ══════════════════════════════════════
+   HOME PAGE
+══════════════════════════════════════ */
+#homePage{display:none;min-height:100vh;background:var(--bg)}
+.home-nav{position:sticky;top:0;z-index:400;background:rgba(255,255,255,.97);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:space-between;padding:0 4%;height:66px;box-shadow:0 1px 0 var(--border)}
+.home-nav-center{display:flex;align-items:center;gap:12px;flex:1;max-width:520px;margin:0 32px;background:#f2f4f2;border-radius:50px;padding:10px 18px}
+.home-nav-center i{color:var(--muted);font-size:1.1rem}
+.home-nav-center input{flex:1;border:none;background:transparent;font-family:var(--font);font-size:.88rem;outline:none;color:var(--text)}
+.home-nav-right{display:flex;align-items:center;gap:14px}
+.notif-btn{position:relative;width:38px;height:38px;border-radius:50%;border:1.5px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s}
+.notif-btn:hover{border-color:var(--green)}
+.notif-btn i{font-size:1.15rem;color:var(--muted)}
+.notif-badge{position:absolute;top:4px;right:4px;width:8px;height:8px;background:var(--red);border-radius:50%;border:1.5px solid #fff}
+.avatar-btn{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--green-d));border:2px solid var(--green);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.85rem;position:relative;overflow:hidden}
+.avatar-btn img{width:100%;height:100%;object-fit:cover}
+.avatar-menu{position:absolute;top:50px;right:0;background:#fff;border:1px solid var(--border);border-radius:14px;padding:8px;min-width:210px;box-shadow:0 16px 48px rgba(0,0,0,.12);display:none;z-index:500}
+.avatar-menu.open{display:block}
+.avatar-menu-header{padding:10px 12px 14px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.avatar-menu-header .av-name{font-weight:800;font-size:.95rem}
+.avatar-menu-header .av-role{font-size:.75rem;color:var(--muted)}
+.am-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:background .15s;font-size:.85rem;color:var(--text);text-decoration:none;font-weight:600}
+.am-item:hover{background:#f4f7f4;color:var(--green)}
+.am-item i{font-size:1rem;color:var(--muted)}
+.am-sep{height:1px;background:var(--border);margin:6px 0}
+.am-logout{color:var(--red)!important}
+.am-logout i{color:var(--red)!important}
+
+/* HOME HERO */
+.home-hero{background:linear-gradient(135deg,var(--green-d) 0%,var(--green) 60%,#1a7a4a 100%);padding:44px 5% 0;position:relative;overflow:hidden}
+.home-hero::before{content:'ኢ';font-family:'Noto Sans Ethiopic',sans-serif;font-size:400px;font-weight:700;position:absolute;right:-60px;top:-60px;color:rgba(255,255,255,.04);pointer-events:none;line-height:1}
+.home-hero-tibeb{position:absolute;top:0;left:0;right:0;height:4px;background:repeating-linear-gradient(-45deg,var(--gold) 0,var(--gold) 10px,var(--red) 10px,var(--red) 20px,#5c87c9 20px,#5c87c9 30px,var(--gold) 30px,var(--gold) 40px)}
+.home-hero-inner{max-width:1200px;margin:0 auto;display:flex;align-items:flex-end;justify-content:space-between;gap:40px}
+.home-greeting{color:#fff;padding-bottom:44px}
+.greeting-tag{display:inline-flex;align-items:center;gap:7px;background:rgba(252,209,22,.18);border:1px solid rgba(252,209,22,.35);color:var(--gold);padding:4px 13px;border-radius:50px;font-size:.72rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:18px}
+.home-greeting h1{font-size:clamp(1.8rem,3.5vw,2.8rem);font-weight:800;letter-spacing:-.03em;line-height:1.1;margin-bottom:8px}
+.home-greeting h1 em{font-style:normal;color:var(--gold)}
+.home-greeting .amh{font-family:'Noto Sans Ethiopic',sans-serif;font-size:.9rem;color:rgba(255,255,255,.5);margin-bottom:20px}
+.home-greeting p{font-size:.95rem;color:rgba(255,255,255,.7);font-weight:300;line-height:1.6;max-width:480px;margin-bottom:24px}
+.home-hero-btns{display:flex;gap:10px}
+.hh-btn{padding:12px 26px;border-radius:50px;font-family:var(--font);font-size:.88rem;font-weight:700;cursor:pointer;border:none;transition:all .25s}
+.hh-btn-gold{background:var(--gold);color:var(--dark)}
+.hh-btn-gold:hover{background:#f0c800;transform:translateY(-1px);box-shadow:0 6px 20px rgba(252,209,22,.4)}
+.hh-btn-outline{background:transparent;border:1.5px solid rgba(255,255,255,.35);color:#fff}
+.hh-btn-outline:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.6)}
+.home-stats-strip{display:flex;gap:0;background:rgba(0,0,0,.25);border-radius:16px 16px 0 0;padding:20px 28px;flex-shrink:0}
+.hstat{text-align:center;padding:0 24px;border-right:1px solid rgba(255,255,255,.12)}
+.hstat:last-child{border-right:none}
+.hstat-n{font-size:1.6rem;font-weight:800;color:#fff}
+.hstat-n em{font-style:normal;color:var(--gold)}
+.hstat-l{font-size:.68rem;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,.45)}
+
+.home-body{max-width:1200px;margin:0 auto;padding:40px 5%}
+.quick-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:44px}
+.qa-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px 18px;cursor:pointer;transition:all .28s;display:flex;flex-direction:column;gap:10px}
+.qa-card:hover{transform:translateY(-4px);border-color:var(--green);box-shadow:0 10px 28px rgba(0,107,63,.1)}
+.qa-icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.3rem}
+.qa-icon.green{background:rgba(0,107,63,.1);color:var(--green)}
+.qa-icon.gold{background:rgba(252,209,22,.15);color:#b89000}
+.qa-icon.red{background:rgba(206,17,38,.1);color:var(--red)}
+.qa-icon.blue{background:rgba(92,135,201,.12);color:#4a7cc4}
+.qa-title{font-size:.9rem;font-weight:700}
+.qa-sub{font-size:.75rem;color:var(--muted)}
+.qa-arrow{margin-left:auto;color:var(--muted);font-size:.8rem;margin-top:auto}
+.home-cols{display:grid;grid-template-columns:1fr 360px;gap:24px;align-items:start}
+.feed-section{}
+.feed-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.feed-title{font-size:1.15rem;font-weight:800}
+.feed-tabs{display:flex;gap:4px;background:#f2f4f2;border-radius:50px;padding:4px}
+.feed-tab{padding:7px 18px;border-radius:50px;border:none;font-family:var(--font);font-size:.78rem;font-weight:700;cursor:pointer;background:transparent;color:var(--muted);transition:all .2s}
+.feed-tab.on{background:#fff;color:var(--green);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+
+/* JOB CARD */
+.job-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:22px;margin-bottom:14px;cursor:pointer;transition:all .25s;position:relative}
+.job-card:hover{border-color:var(--green);box-shadow:0 8px 24px rgba(0,107,63,.08);transform:translateY(-2px)}
+.job-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.job-co{display:flex;align-items:center;gap:10px}
+.job-co-logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--green),#1a7a4a);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.9rem;flex-shrink:0}
+.job-co-name{font-size:.78rem;color:var(--muted);font-weight:600}
+.job-title{font-size:1rem;font-weight:800;margin-bottom:6px}
+.job-budget{font-size:1rem;font-weight:800;color:var(--green);white-space:nowrap}
+.job-budget span{font-size:.7rem;font-weight:400;color:var(--muted)}
+.job-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.job-tag{background:#f0f5f0;color:var(--green);border-radius:50px;padding:4px 11px;font-size:.72rem;font-weight:700}
+.job-tag.red{background:rgba(206,17,38,.07);color:var(--red)}
+.job-tag.blue{background:rgba(92,135,201,.1);color:#4a7cc4}
+.job-meta{display:flex;align-items:center;gap:16px;font-size:.75rem;color:var(--muted)}
+.job-meta i{font-size:.85rem}
+.job-save{position:absolute;top:18px;right:18px;width:32px;height:32px;border-radius:50%;border:1.5px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;color:var(--muted);font-size:.9rem}
+.job-save:hover,.job-save.saved{color:var(--gold);border-color:var(--gold);background:rgba(252,209,22,.08)}
+/* Apply button */
+.job-apply-row{display:flex;justify-content:flex-end;margin-top:14px;gap:10px}
+.btn-apply{padding:9px 22px;background:var(--green);color:#fff;border:none;border-radius:50px;font-family:var(--font);font-size:.82rem;font-weight:700;cursor:pointer;transition:all .2s}
+.btn-apply:hover{background:var(--green-d);box-shadow:0 4px 16px rgba(0,107,63,.3)}
+.btn-apply.applied{background:#f0f5f0;color:var(--green);cursor:default}
+
+/* SIDEBAR */
+.profile-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px}
+.profile-card-banner{height:72px;background:linear-gradient(135deg,var(--green-d),var(--green));position:relative}
+.profile-card-banner::after{content:'ሥ';font-family:'Noto Sans Ethiopic';position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:3rem;color:rgba(255,255,255,.15)}
+.profile-card-body{padding:0 20px 20px;text-align:center;position:relative}
+.profile-avatar{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--gold));border:3px solid #fff;margin:-32px auto 12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:1.3rem;overflow:hidden}
+.profile-avatar img{width:100%;height:100%;object-fit:cover}
+.profile-name{font-weight:800;font-size:1rem;margin-bottom:2px}
+.profile-role{font-size:.75rem;color:var(--muted);margin-bottom:10px}
+.profile-stats{display:flex;justify-content:space-around;padding:14px 0;border-top:1px solid var(--border);margin-top:10px}
+.ps-item{text-align:center}
+.ps-n{font-size:1.1rem;font-weight:800;color:var(--green)}
+.ps-l{font-size:.65rem;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)}
+.profile-complete{margin-top:14px;padding:12px;background:#f7f9f7;border-radius:10px}
+.pc-label{display:flex;justify-content:space-between;font-size:.75rem;font-weight:700;margin-bottom:6px}
+.pc-bar{height:6px;background:#e4e4e4;border-radius:3px;overflow:hidden}
+.pc-fill{height:100%;background:linear-gradient(to right,var(--green),var(--gold));border-radius:3px;width:62%;transition:width .5s}
+.widget-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px}
+.widget-title{font-size:.85rem;font-weight:800;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.widget-title i{color:var(--green)}
+.skill-pill{display:inline-flex;align-items:center;gap:6px;background:#f0f5f0;border:1px solid #d8ead8;color:var(--green);border-radius:50px;padding:5px 13px;font-size:.75rem;font-weight:700;margin:4px;cursor:pointer;transition:all .2s}
+.skill-pill:hover{background:var(--green);color:#fff;border-color:var(--green)}
+.skill-pill .pill-count{background:rgba(0,107,63,.15);border-radius:50px;padding:1px 7px;font-size:.65rem}
+.mini-fl{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.mini-fl:last-child{border-bottom:none;padding-bottom:0}
+.mini-fl-av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--green),#1a7a4a);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.85rem;flex-shrink:0}
+.mini-fl-name{font-size:.85rem;font-weight:700}
+.mini-fl-skill{font-size:.72rem;color:var(--muted)}
+.mini-fl-rate{margin-left:auto;font-size:.82rem;font-weight:800;color:var(--green);white-space:nowrap}
+.eth-banner{background:repeating-linear-gradient(-45deg,rgba(0,107,63,.06) 0,rgba(0,107,63,.06) 6px,transparent 6px,transparent 12px);border:1.5px solid rgba(0,107,63,.15);border-radius:var(--r);padding:18px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px}
+.eth-flag{font-size:1.8rem;flex-shrink:0}
+.eth-banner-text h4{font-size:.9rem;font-weight:800;margin-bottom:3px}
+.eth-banner-text p{font-size:.75rem;color:var(--muted);line-height:1.5}
+.post-job-prompt{background:linear-gradient(135deg,var(--green-d),var(--green));border-radius:var(--r);padding:22px;color:#fff;margin-bottom:20px;position:relative;overflow:hidden}
+.post-job-prompt::after{content:'ሥ';font-family:'Noto Sans Ethiopic';position:absolute;right:-10px;bottom:-20px;font-size:6rem;color:rgba(255,255,255,.06)}
+.post-job-prompt h4{font-size:.95rem;font-weight:800;margin-bottom:5px}
+.post-job-prompt p{font-size:.78rem;color:rgba(255,255,255,.65);margin-bottom:14px;line-height:1.5}
+.pjp-btn{padding:9px 20px;background:var(--gold);color:var(--dark);border:none;border-radius:50px;font-family:var(--font);font-weight:800;font-size:.8rem;cursor:pointer;transition:all .2s}
+.pjp-btn:hover{background:#f0c800}
+
+/* ══════════════════════════════════════
+   MODAL OVERLAY
+══════════════════════════════════════ */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2000;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .3s;padding:20px}
+.modal-overlay.show{opacity:1;pointer-events:all}
+.modal-box{background:#fff;border-radius:20px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 24px 80px rgba(0,0,0,.2);transform:scale(.96);transition:transform .3s}
+.modal-overlay.show .modal-box{transform:scale(1)}
+.modal-header{padding:28px 28px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.modal-header h2{font-size:1.4rem;font-weight:800;letter-spacing:-.02em}
+.modal-close{background:#f4f4f4;border:none;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:.9rem;color:var(--muted);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s}
+.modal-close:hover{background:#ececec;color:var(--text)}
+.modal-body{padding:24px 28px 28px}
+
+/* ══════════════════════════════════════
+   POST JOB MODAL
+══════════════════════════════════════ */
+.pj-step{display:none}
+.pj-step.on{display:block}
+.pj-progress{display:flex;gap:6px;margin-bottom:28px}
+.pj-bar{height:4px;border-radius:2px;flex:1;background:#e4e4e4;transition:background .3s}
+.pj-bar.on{background:var(--green)}
+.pay-info-box{background:#f0f5f0;border:1px solid #c8ddc8;border-radius:12px;padding:20px;margin-bottom:20px}
+.pay-info-box h4{font-weight:800;font-size:1rem;margin-bottom:6px;color:var(--green)}
+.pay-info-box p{font-size:.85rem;color:var(--muted);line-height:1.5}
+/* Telebirr payment screen */
+.telebirr-card{background:linear-gradient(135deg,#0a6e36,#1a9a52);border-radius:18px;padding:28px;text-align:center;color:#fff;margin-bottom:20px;position:relative;overflow:hidden}
+.telebirr-card::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
+.telebirr-logo-row{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px}
+.telebirr-logo{background:rgba(255,255,255,.2);border-radius:12px;padding:8px 16px;font-size:1.1rem;font-weight:800;letter-spacing:.5px}
+.telebirr-amount{font-size:2.8rem;font-weight:800;margin-bottom:4px}
+.telebirr-label{font-size:.8rem;color:rgba(255,255,255,.6);margin-bottom:20px;letter-spacing:.5px}
+.telebirr-divider{height:1px;background:rgba(255,255,255,.15);margin:16px 0}
+.pay-recipient{display:flex;align-items:center;gap:12px;background:rgba(0,0,0,.2);border-radius:12px;padding:14px;text-align:left}
+.pay-recipient-icon{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0}
+.pay-recipient-info{flex:1}
+.pay-recipient-name{font-weight:800;font-size:.9rem}
+.pay-recipient-phone{font-size:.78rem;color:rgba(255,255,255,.65);margin-top:2px}
+.pay-note{font-size:.72rem;color:rgba(255,255,255,.5);margin-top:12px;line-height:1.5}
+.deadline-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+.refund-note{background:rgba(252,209,22,.1);border:1px solid rgba(252,209,22,.3);border-radius:10px;padding:14px;font-size:.82rem;color:#8a6e00;margin-bottom:20px;display:flex;gap:10px;align-items:flex-start}
+.refund-note i{font-size:1.1rem;flex-shrink:0;margin-top:1px}
+
+/* ══════════════════════════════════════
+   APPLY MODAL
+══════════════════════════════════════ */
+.apply-contact-info{background:#f7f9f7;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:18px;font-size:.85rem;color:var(--muted);line-height:1.6}
+.apply-contact-info strong{color:var(--text);font-weight:700}
+
+/* ══════════════════════════════════════
+   NOTIFICATIONS PANEL
+══════════════════════════════════════ */
+.notif-panel{position:fixed;top:72px;right:20px;width:360px;background:#fff;border:1px solid var(--border);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.12);z-index:600;max-height:480px;overflow:hidden;display:none;flex-direction:column}
+.notif-panel.open{display:flex}
+.notif-panel-header{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.notif-panel-header h3{font-size:.95rem;font-weight:800}
+.notif-mark-read{background:none;border:none;font-family:var(--font);font-size:.75rem;color:var(--green);font-weight:600;cursor:pointer}
+.notif-list{overflow-y:auto;flex:1}
+.notif-item{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;gap:12px;cursor:pointer;transition:background .15s}
+.notif-item:hover{background:#f7f9f7}
+.notif-item.unread{background:#f0f7f4}
+.notif-icon{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.95rem;flex-shrink:0}
+.notif-icon.green{background:rgba(0,107,63,.12);color:var(--green)}
+.notif-icon.gold{background:rgba(252,209,22,.2);color:#8a6e00}
+.notif-icon.red{background:rgba(206,17,38,.1);color:var(--red)}
+.notif-content .notif-title{font-size:.83rem;font-weight:700;margin-bottom:2px}
+.notif-content .notif-time{font-size:.72rem;color:var(--muted)}
+.notif-dot{width:8px;height:8px;background:var(--green);border-radius:50%;flex-shrink:0;margin-top:4px}
+
+/* ══════════════════════════════════════
+   PROFILE EDIT PAGE
+══════════════════════════════════════ */
+#profilePage{display:none;min-height:100vh;background:var(--bg)}
+.profile-page-wrap{max-width:860px;margin:0 auto;padding:44px 24px}
+.profile-page-header{display:flex;align-items:center;gap:16px;margin-bottom:36px}
+.back-btn{padding:9px 18px;border-radius:50px;border:1.5px solid var(--border);background:#fff;font-family:var(--font);font-size:.83rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .2s}
+.back-btn:hover{border-color:var(--green);color:var(--green)}
+.profile-page-card{background:#fff;border-radius:20px;border:1px solid var(--border);overflow:hidden;margin-bottom:20px}
+.profile-page-banner{height:120px;background:linear-gradient(135deg,var(--green-d),var(--green));position:relative}
+.profile-page-av-wrap{padding:0 28px 28px;position:relative}
+.profile-page-av{width:88px;height:88px;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--gold));border:4px solid #fff;margin-top:-44px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:1.8rem;overflow:hidden;cursor:pointer;position:relative}
+.profile-page-av img{width:100%;height:100%;object-fit:cover}
+.profile-page-av input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.profile-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+.section-title{font-size:1rem;font-weight:800;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+
+/* ══════════════════════════════════════
+   MY APPLICATIONS PAGE
+══════════════════════════════════════ */
+#applicationsPage{display:none;min-height:100vh;background:var(--bg)}
+.apps-wrap{max-width:860px;margin:0 auto;padding:44px 24px}
+.app-item{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:12px;display:flex;align-items:center;gap:16px}
+.app-status{padding:4px 12px;border-radius:50px;font-size:.72rem;font-weight:800;white-space:nowrap}
+.app-status.pending{background:rgba(252,209,22,.15);color:#8a6e00}
+.app-status.shortlisted{background:rgba(0,107,63,.1);color:var(--green)}
+.app-status.rejected{background:rgba(206,17,38,.07);color:var(--red)}
+.app-info{flex:1}
+.app-job-title{font-size:.9rem;font-weight:800;margin-bottom:2px}
+.app-company{font-size:.75rem;color:var(--muted)}
+.app-msg{font-size:.78rem;color:var(--muted);margin-top:6px;padding:8px 12px;background:#f7f8f5;border-radius:8px;line-height:1.5}
+
+/* ══════════════════════════════════════
+   MY POSTED JOBS PAGE
+══════════════════════════════════════ */
+#myJobsPage{display:none;min-height:100vh;background:var(--bg)}
+.myjobs-wrap{max-width:900px;margin:0 auto;padding:44px 24px}
+.posted-job-card{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:22px;margin-bottom:14px}
+.posted-job-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.posted-job-title{font-size:1rem;font-weight:800}
+.posted-job-status{padding:4px 12px;border-radius:50px;font-size:.72rem;font-weight:800}
+.pjs-active{background:rgba(0,107,63,.1);color:var(--green)}
+.pjs-closed{background:rgba(206,17,38,.07);color:var(--red)}
+.applicants-list{margin-top:14px;border-top:1px solid var(--border);padding-top:14px}
+.applicant-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.applicant-row:last-child{border-bottom:none}
+.applicant-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--green),#1a7a4a);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.85rem;flex-shrink:0}
+.applicant-info{flex:1}
+.applicant-name{font-size:.85rem;font-weight:700}
+.applicant-cover{font-size:.75rem;color:var(--muted);margin-top:2px;line-height:1.4}
+.applicant-actions{display:flex;gap:8px}
+.btn-shortlist{padding:6px 14px;border-radius:50px;background:rgba(0,107,63,.1);color:var(--green);border:none;font-family:var(--font);font-size:.75rem;font-weight:700;cursor:pointer;transition:all .2s}
+.btn-shortlist:hover{background:var(--green);color:#fff}
+.btn-reject{padding:6px 14px;border-radius:50px;background:rgba(206,17,38,.07);color:var(--red);border:none;font-family:var(--font);font-size:.75rem;font-weight:700;cursor:pointer;transition:all .2s}
+.btn-reject:hover{background:var(--red);color:#fff}
+.btn-view-profile{padding:6px 14px;border-radius:50px;background:#f4f4f4;color:var(--muted);border:none;font-family:var(--font);font-size:.75rem;font-weight:700;cursor:pointer;transition:all .2s}
+.btn-view-profile:hover{background:#e8e8e8;color:var(--text)}
+
+/* Toast */
+.toast{position:fixed;bottom:32px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--dark);color:#fff;padding:12px 24px;border-radius:50px;font-size:.85rem;font-weight:600;z-index:9999;transition:transform .3s;box-shadow:0 8px 32px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px;white-space:nowrap}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.toast.green{background:var(--green)}
+.toast.red{background:var(--red)}
+
+/* Loading spinner */
+.spinner{display:inline-block;width:18px;height:18px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.text-center{text-align:center}
+.mt-36{margin-top:36px}
+.empty-state{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty-state i{font-size:3rem;margin-bottom:16px;color:#ccc;display:block}
+.empty-state h3{font-size:1rem;font-weight:700;margin-bottom:6px;color:var(--text)}
+.empty-state p{font-size:.85rem}
+
+/* Google Sign-In Button */
+.google-btn{width:100%;padding:12px;border:1.5px solid #dadce0;border-radius:50px;background:#fff;display:flex;align-items:center;justify-content:center;gap:10px;font-family:var(--font);font-size:.88rem;font-weight:700;cursor:pointer;transition:all .25s;color:#3c4043;margin-bottom:14px}
+.google-btn:hover{border-color:#4285f4;background:#f8f9ff;box-shadow:0 2px 10px rgba(66,133,244,.15)}
+.google-btn svg{width:18px;height:18px;flex-shrink:0}
+.auth-or-line{display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:.78rem;color:#aaa}
+.auth-or-line::before,.auth-or-line::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ══ RESPONSIVE FIXES ══════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Auth: hide left panel, full-width right */
+  .auth-left { display: none !important; }
+  #authPage { display: block !important; }
+  #authPage.show { display: block !important; overflow-y: auto; }
+  .auth-right {
+    width: 100% !important;
+    min-height: 100vh;
+    padding: 60px 24px 40px !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+  /* Nav */
+  .nav-links { display: none; }
+  .topnav { padding: 0 4%; }
+  /* Hero */
+  .hero-wrap { margin: 12px 3% 0; height: 70vw; min-height: 320px; border-radius: 14px; }
+  .hero-inner { padding: 0 5%; }
+  .hero-h1 { font-size: clamp(1.6rem, 7vw, 2.8rem); }
+  .hero-search { max-width: 100%; }
+  .hero-trust { gap: 18px; }
+  /* Jobs grid */
+  .jobs-g { grid-template-columns: 1fr !important; }
+  .cat-g { grid-template-columns: repeat(2,1fr) !important; }
+  /* Insights */
+  .insights { flex-direction: column !important; gap: 28px; padding: 40px 5%; }
+  .calc-box { width: 100% !important; }
+  /* Footer */
+  .foot-g { grid-template-columns: 1fr 1fr !important; gap: 28px; }
+  /* App shell sidebar */
+  .sidebar { transform: translateX(-100%); position: fixed; z-index: 800; }
+  .sidebar.open { transform: translateX(0); }
+  .main-area { margin-left: 0 !important; }
+  .main-topbar { padding: 0 16px; }
+  .main-content { padding: 16px; }
+  .kpi-row { grid-template-columns: repeat(2,1fr) !important; }
+  .dash-cols { grid-template-columns: 1fr !important; }
+  .prof-grid { grid-template-columns: 1fr !important; }
+  .jobs-grid { grid-template-columns: 1fr !important; }
+  .txn-head { display: none; }
+  .txn-row { grid-template-columns: 1fr 1fr !important; gap: 4px; font-size: .8rem; }
+  .settings-grid { grid-template-columns: 1fr !important; }
+  .frow { grid-template-columns: 1fr !important; }
+  .budget-row { grid-template-columns: 1fr 1fr !important; }
+  .earn-kpi { grid-template-columns: 1fr !important; }
+  /* Hamburger menu button */
+  .hamburger { display: flex !important; }
+  /* Sidebar overlay */
+  .sb-overlay { display: block !important; }
+}
+
+@media (max-width: 480px) {
+  .auth-right { padding: 52px 18px 32px !important; }
+  .auth-tabs { width: 100% !important; }
+  .atab { flex: 1; text-align: center; }
+  .role-pick { grid-template-columns: 1fr 1fr; }
+  .cat-g { grid-template-columns: repeat(2,1fr) !important; }
+  .kpi-row { grid-template-columns: 1fr 1fr !important; }
+}
+
+/* ── HAMBURGER BUTTON ── */
+.hamburger {
+  display: none;
+  align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  background: rgba(0,0,0,.06); border: none; border-radius: 8px;
+  cursor: pointer; flex-direction: column; gap: 5px;
+  -webkit-tap-highlight-color: transparent;
+}
+.hamburger span {
+  display: block; width: 18px; height: 2px;
+  background: var(--text); border-radius: 2px; transition: all .3s;
+}
+/* Sidebar overlay */
+.sb-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 799;
+}
+
+/* ── GLOBAL TOUCH FIXES ── */
+input, textarea, select, button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+input,select,textarea { font-size: 16px !important; }
+</style>
+</head>
+<body>
+<div id="cur"></div><div id="cur-r"></div>
+<div id="toast" class="toast"><i class='bx bx-check-circle'></i><span id="toastMsg">Done</span></div>
+
+<!-- ══════════════════════════════════════════
+     LANDING PAGE
+══════════════════════════════════════════ -->
+<div id="landingPage" class="page active">
+<div class="tibeb"></div>
+<nav>
+  <span class="logo">ei<em>verr</em></span>
+  <ul class="nav-links">
+    <li><a href="#">Find Talent</a></li>
+    <li><a href="#">Find Work</a></li>
+    <li><a href="#">Why eiverr</a></li>
+    <li><a href="#" onclick="openAuth('signup')">Post Jobs</a></li>
+    <li><a href="mailto:davidfooter09@gmail.com">Contact</a></li>
+  </ul>
+  <div class="nav-right">
+    <button class="btn btn-outline" onclick="openAuth('login')">Log In</button>
+    <button class="btn btn-green" onclick="openAuth('signup')">Sign Up</button>
+  </div>
+</nav>
+<div style="padding:36px 5%">
+<div class="hero-wrap">
+  <img id="heroImg" class="hero-media" src="Copilot_20260507_125015.png" alt="Hero" style="display:block;background:linear-gradient(135deg,#0d1a12,#1a3820)">
+  <div class="hero-overlay"></div>
+  <div class="hero-content">
+    <div class="hero-badge">🇪🇹 Ethiopia's Leading Freelance Hub</div>
+    <h1 class="hero-h1">Hire the best.<br><em>Earn in ETB.</em></h1>
+    <div class="hero-amh">ችሎታዎን ያሳዩ · ሥራ ይፈልጉ · ይከፈሉ</div>
+    <p class="hero-p">Connecting Ethiopian businesses with top local talent — securely, fast, in Ethiopian Birr.</p>
+    <div class="hero-search">
+      <input type="text" placeholder="Search skills (e.g., Flutter, Logo Design, Amharic Writing…)">
+      <button><i class='bx bx-search'></i> Search</button>
+    </div>
+    <div class="hero-trust">
+      <div class="ht-item"><div class="ht-n" id="liveUserCount">Growing</div><div class="ht-l">Freelancers</div></div>
+      <div class="ht-item"><div class="ht-n" id="liveJobCount">New</div><div class="ht-l">Active Jobs</div></div>
+      <div class="ht-item"><div class="ht-n">Soon <em>M+</em></div><div class="ht-l">ETB Paid</div></div>
+    </div>
+    <div id="noUsersNotice" style="display:none;margin-top:18px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:10px;padding:10px 16px;font-size:.8rem;color:rgba(255,255,255,.7)">
+      <strong style="color:var(--gold)">Be the first!</strong> eiverr is just launching. Create an account and post your services or hire talent in Ethiopia.
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="section rv">
+  <span class="s-tag">Explore</span>
+  <h2 class="s-h2">Find the right talent</h2>
+  <p class="s-p">Browse Ethiopia's most in-demand skill categories.</p>
+  <div class="cat-grid mt-36">
+    <div class="cat-card rv"><i class='bx bx-code-alt'></i><h3>Development & IT</h3><p>4.85/5 average rating</p></div>
+    <div class="cat-card rv"><i class='bx bx-palette'></i><h3>Design & Creative</h3><p>Graphics, UI/UX, Branding</p></div>
+    <div class="cat-card rv"><i class='bx bx-line-chart'></i><h3>Sales & Marketing</h3><p>SEO, Social Media, Ads</p></div>
+    <div class="cat-card rv"><i class='bx bx-pen'></i><h3>Writing & Translation</h3><p>Amharic, Oromo, English</p></div>
+    <div class="cat-card rv"><i class='bx bx-support'></i><h3>Admin & Support</h3><p>Virtual Assistants</p></div>
+    <div class="cat-card rv"><i class='bx bx-calculator'></i><h3>Finance & Accounting</h3><p>Tax, Bookkeeping</p></div>
+    <div class="cat-card rv"><i class='bx bx-buildings'></i><h3>Engineering & Arch</h3><p>AutoCAD, 3D Design</p></div>
+    <div class="cat-card rv"><i class='bx bx-briefcase'></i><h3>Legal Services</h3><p>Contracts, Corporate</p></div>
+  </div>
+</div>
+
+<div class="steps-bg"><div class="steps-inner">
+  <div class="rv"><span class="s-tag">Process</span><h2 class="s-h2">How it works</h2><p class="s-p">Three steps — from posting a job to getting paid in ETB.</p></div>
+  <div class="steps-grid mt-36">
+    <div class="step-card rv"><div class="step-img"><i class='bx bx-briefcase'></i><div class="step-num">1</div></div><div class="step-body"><h3>Post a job for 200 Birr</h3><p>Describe what you need. Pay 200 ETB via Telebirr. If no one is found, your money is fully refunded.</p></div></div>
+    <div class="step-card rv"><div class="step-img"><i class='bx bx-user-check'></i><div class="step-num">2</div></div><div class="step-body"><h3>Review proposals & hire</h3><p>Browse profiles, portfolios, and ratings. Shortlist or reject applicants. Connect via Telegram or phone.</p></div></div>
+    <div class="step-card rv"><div class="step-img"><i class='bx bx-wallet'></i><div class="step-num">3</div></div><div class="step-body"><h3>Pay securely in ETB</h3><p>Use Telebirr or CBE. Funds held in escrow — you only pay when the work is approved and delivered.</p></div></div>
+  </div>
+</div></div>
+
+<div class="insights rv">
+  <div class="ins-text">
+    <h2>Get insights into freelancer pricing in Birr</h2>
+    <p>Use data to hire smartly. Understand live market rates for Ethiopian talent instantly.</p>
+  </div>
+  <div class="calc-box">
+    <h3>Cost Estimate</h3>
+    <div class="calc-price">1,000 – 8,000 ETB</div>
+    <div class="calc-sub">Per Project · Nationwide</div>
+    <div class="calc-bar"></div>
+    <div class="calc-ends"><span>Entry Level</span><span>Expert</span></div>
+  </div>
+</div>
+
+<div class="cta-wrap rv">
+  <div class="cta-box">
+    <h2>Find your next hire or your next gig</h2>
+    <p>Post a job for 200 Birr. Get 100% refund if no candidate is found.</p>
+    <button class="btn btn-lg" style="background:#fff;color:var(--green);font-weight:800" onclick="openAuth('signup')">Register on eiverr →</button>
+  </div>
+</div>
+
+<div style="text-align:center;padding:10px 0 40px;font-size:.8rem;color:#aaa;letter-spacing:1.5px;text-transform:uppercase">
+  Designed & Built by <strong style="color:var(--green)">Dawit Solomon</strong>
+</div>
+
+<footer>
+  <div class="foot-grid">
+    <div><div class="foot-logo">ei<em>verr</em></div><div class="foot-about">Empowering the Ethiopian digital workforce. Real work. Real pay. In Ethiopian Birr.</div></div>
+    <div><div class="foot-h">For Clients</div><ul class="foot-ul"><li><a href="#">How to Hire</a></li><li><a href="#">Talent Marketplace</a></li><li><a href="#">Enterprise</a></li></ul></div>
+    <div><div class="foot-h">For Talent</div><ul class="foot-ul"><li><a href="#">How to Find Work</a></li><li><a href="#">Payment Guides</a></li><li><a href="#">Community</a></li></ul></div>
+    <div><div class="foot-h">Contact Admin</div><ul class="foot-ul"><li><a href="mailto:davidfooter09@gmail.com">davidfooter09@gmail.com</a></li><li><a href="tel:0931308691">📞 0931308691</a></li><li><a href="#">Addis Ababa Office</a></li><li><a href="#">Privacy Policy</a></li></ul></div>
+  </div>
+  <div class="foot-bottom"><div class="foot-copy">© 2026 eiverr · All rights reserved · Addis Ababa, Ethiopia 🇪🇹</div><div class="built-by">Built by Dawit Solomon</div></div>
+</footer>
+<div class="tibeb"></div>
+</div><!-- /landingPage -->
+
+
+<!-- ══════════════════════════════════════════
+     AUTH PAGE
+══════════════════════════════════════════ -->
+<div id="authPage">
+  <div class="auth-left">
+    <div class="auth-left-flag"></div>
+    <div class="auth-left-bg"></div>
+    <div class="auth-left-content">
+      <div class="auth-brand">ei<em>verr</em></div>
+      <div class="auth-amh">የሥራ ዕድሎች እንደ ቤታ</div>
+      <h2 class="auth-headline" id="authHeadline">ችሎታዎን ያሳዩ<br><span style="color:rgba(255,255,255,.55);font-size:.85em">Find work. Get paid.<br>Own your future.</span></h2>
+      <div class="auth-dots"><div class="auth-dot on"></div><div class="auth-dot"></div><div class="auth-dot"></div></div>
+    </div>
+  </div>
+  <div class="auth-right">
+    <button class="auth-close" onclick="closeAuth()">✕</button>
+    <div class="lang-switch">
+      <button class="lang-btn on" data-lang="en" onclick="toggleLang(this)">English</button>
+      <button class="lang-btn" data-lang="am" onclick="toggleLang(this)">አማርኛ</button>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab on" id="tabLogin" onclick="authSwitch('login')">Log In</button>
+      <button class="auth-tab" id="tabSignup" onclick="authSwitch('signup')">Sign Up</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div class="auth-tc on" id="tcLogin">
+      <h2 class="auth-title">Welcome back to eiverr</h2>
+      <p class="auth-desc">Sign in to your eiverr account</p>
+      <button class="google-btn" onclick="signInWithGoogle()">
+        <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Continue with Google
+      </button>
+      <div class="auth-or-line">or</div>
+      <div class="fgrp"><label class="flbl">Email</label><div class="finp-wrap"><input class="finp" type="email" id="loginEmail" placeholder="you@example.com"><i class='bx bx-envelope finp-icon'></i></div></div>
+      <div class="fgrp"><label class="flbl">Password</label><div class="finp-wrap"><input class="finp" type="password" id="loginPass" placeholder="••••••••"><i class='bx bx-lock-alt finp-icon'></i></div></div>
+      <div id="loginErr" class="err-msg"></div>
+      <div class="f-between"><label class="fcheck"><input type="checkbox"> Remember me</label><a href="#">Forgot password?</a></div>
+      <button class="sub-btn" id="loginBtn" onclick="doLogin()">Log In <i class='bx bx-right-arrow-alt'></i></button>
+      <div class="auth-or">or</div>
+      <p class="auth-note">No account? <a href="#" onclick="authSwitch('signup')">Create one free</a></p>
+    </div>
+
+    <!-- SIGNUP -->
+    <div class="auth-tc" id="tcSignup">
+      <h2 class="auth-title">Create account</h2>
+      <p class="auth-desc">Join thousands of Ethiopian freelancers</p>
+      <button class="google-btn" onclick="signInWithGoogle()">
+        <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Sign Up with Google
+      </button>
+      <div class="auth-or-line">or sign up with email</div>
+      <div class="role-row">
+        <div class="role-opt on" id="roleFreelancer" onclick="pickRole('freelancer',this)"><span>💼</span>Freelancer</div>
+        <div class="role-opt" id="roleClient" onclick="pickRole('client',this)"><span>🏢</span>Client / Employer</div>
+      </div>
+      <div class="frow">
+        <div class="fgrp"><label class="flbl">First Name</label><div class="finp-wrap"><input class="finp" id="signupFirst" type="text" placeholder="Dawit"><i class='bx bx-user finp-icon'></i></div></div>
+        <div class="fgrp"><label class="flbl">Last Name</label><div class="finp-wrap"><input class="finp" id="signupLast" type="text" placeholder="Solomon"><i class='bx bx-user finp-icon'></i></div></div>
+      </div>
+      <div class="fgrp"><label class="flbl">Email</label><div class="finp-wrap"><input class="finp" type="email" id="signupEmail" placeholder="you@example.com"><i class='bx bx-envelope finp-icon'></i></div></div>
+      <div class="fgrp"><label class="flbl">Password</label><div class="finp-wrap"><input class="finp" type="password" id="signupPass" placeholder="Min 8 characters"><i class='bx bx-lock-alt finp-icon'></i></div></div>
+      <div id="signupErr" class="err-msg"></div>
+      <button class="sub-btn" id="signupBtn" onclick="doSignup()">Create Account <i class='bx bx-right-arrow-alt'></i></button>
+      <div class="auth-or">or</div>
+      <p class="auth-note">Already have an account? <a href="#" onclick="authSwitch('login')">Log in</a></p>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     PROFILE SETUP PAGE
+══════════════════════════════════════════ -->
+<div id="profileSetupPage" class="page">
+<div class="psetup-nav">
+  <span class="logo">ei<em>verr</em></span>
+  <button class="btn btn-outline" onclick="skipProfileSetup()">Skip for now</button>
+</div>
+<div class="psetup-wrap">
+  <div class="psetup-header">
+    <div class="psetup-badge">🌟 Welcome to eiverr!</div>
+    <h1>Set up your profile</h1>
+    <p>A complete profile gets <strong>3x more</strong> responses. Only takes 2 minutes.</p>
+  </div>
+
+  <div class="psetup-progress">
+    <div class="psp-step active" id="step1"><div class="psp-num">1</div><div class="psp-lbl">Photo</div></div>
+    <div class="psp-step" id="step2"><div class="psp-num">2</div><div class="psp-lbl">Skills</div></div>
+    <div class="psp-step" id="step3"><div class="psp-num">3</div><div class="psp-lbl">Contact</div></div>
+    <div class="psp-step" id="step4"><div class="psp-num">4</div><div class="psp-lbl">Bio</div></div>
+  </div>
+
+  <div class="psetup-card">
+    <!-- STEP 1: Photo -->
+    <div class="psetup-section on" id="ps1">
+      <h3 style="font-size:1.1rem;font-weight:800;margin-bottom:6px">Add your photo</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:24px">Profiles with photos get 5x more visibility</p>
+      <div class="photo-upload-area" id="photoUploadArea" onclick="document.getElementById('photoInput').click()">
+        <img id="photoPreview" alt="">
+        <i class='bx bx-camera' id="photoCameraIcon"></i>
+        <span id="photoText">Upload photo</span>
+        <input type="file" id="photoInput" accept="image/*" onchange="handlePhotoSelect(event)">
+      </div>
+      <p class="photo-hint">JPG, PNG or WEBP · Max 5 MB</p>
+      <div class="fgrp"><label class="flbl">Display Name</label><div class="finp-wrap"><input class="finp" id="ps1Name" type="text" placeholder="Your full name"><i class='bx bx-user finp-icon'></i></div></div>
+      <div class="fgrp"><label class="flbl">Location</label><div class="finp-wrap"><input class="finp" id="ps1Location" type="text" placeholder="e.g. Addis Ababa, Ethiopia"><i class='bx bx-map-pin finp-icon'></i></div></div>
+      <div class="psetup-nav-btns">
+        <button class="psetup-skip" onclick="skipProfileSetup()">Skip all setup</button>
+        <button class="btn btn-green" onclick="nextSetupStep(2)">Continue →</button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Skills -->
+    <div class="psetup-section" id="ps2">
+      <h3 style="font-size:1.1rem;font-weight:800;margin-bottom:6px">Your skills</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:24px">Type a skill and press Enter to add it</p>
+      <div class="fgrp">
+        <label class="flbl">Add Skills</label>
+        <div class="tags-input-wrap" id="skillsWrap">
+          <input type="text" id="skillInput" placeholder="e.g. Flutter, Graphic Design, Amharic Writing…" onkeydown="handleSkillInput(event)">
+        </div>
+      </div>
+      <div style="margin-top:12px;margin-bottom:16px">
+        <p style="font-size:.75rem;color:var(--muted);margin-bottom:8px;font-weight:600">POPULAR SKILLS</p>
+        <div id="popularSkills">
+          <span class="skill-pill" onclick="addSkill('Flutter')">Flutter</span>
+          <span class="skill-pill" onclick="addSkill('React')">React</span>
+          <span class="skill-pill" onclick="addSkill('UI/UX Design')">UI/UX Design</span>
+          <span class="skill-pill" onclick="addSkill('Amharic Writing')">Amharic Writing</span>
+          <span class="skill-pill" onclick="addSkill('Video Editing')">Video Editing</span>
+          <span class="skill-pill" onclick="addSkill('Logo Design')">Logo Design</span>
+          <span class="skill-pill" onclick="addSkill('Python')">Python</span>
+          <span class="skill-pill" onclick="addSkill('Social Media')">Social Media</span>
+        </div>
+      </div>
+      <div class="fgrp"><label class="flbl">Hourly Rate (ETB)</label><div class="finp-wrap"><input class="finp" id="ps2Rate" type="number" placeholder="e.g. 200"><i class='bx bx-money finp-icon'></i></div></div>
+      <div class="psetup-nav-btns">
+        <button class="psetup-skip" onclick="nextSetupStep(1)">← Back</button>
+        <button class="btn btn-green" onclick="nextSetupStep(3)">Continue →</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Contact -->
+    <div class="psetup-section" id="ps3">
+      <h3 style="font-size:1.1rem;font-weight:800;margin-bottom:6px">How can employers reach you?</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:20px">This helps employers contact you when shortlisted</p>
+      <div class="contact-opts">
+        <div class="contact-opt on" id="cOptPhone" onclick="pickContact('phone',this)"><i class='bx bx-phone'></i>Phone / Telebirr</div>
+        <div class="contact-opt" id="cOptTelegram" onclick="pickContact('telegram',this)"><i class='bx bxl-telegram'></i>Telegram</div>
+      </div>
+      <div id="contactPhoneField" class="fgrp">
+        <label class="flbl">Phone Number</label>
+        <div class="finp-wrap"><input class="finp" id="ps3Phone" type="tel" placeholder="+251 9XX XXX XXX"><i class='bx bx-phone finp-icon'></i></div>
+      </div>
+      <div id="contactTelegramField" class="fgrp" style="display:none">
+        <label class="flbl">Telegram Username</label>
+        <div class="finp-wrap"><input class="finp" id="ps3Telegram" type="text" placeholder="@yourusername"><i class='bxl-telegram finp-icon'></i></div>
+      </div>
+      <div style="margin-top:4px;padding:10px 14px;background:#f0f5f0;border-radius:8px;font-size:.75rem;color:var(--muted)">
+        <i class='bx bx-lock'></i> Your contact info is only shared with employers after you're shortlisted.
+      </div>
+      <div class="psetup-nav-btns">
+        <button class="psetup-skip" onclick="nextSetupStep(2)">← Back</button>
+        <button class="btn btn-green" onclick="nextSetupStep(4)">Continue →</button>
+      </div>
+    </div>
+
+    <!-- STEP 4: Bio -->
+    <div class="psetup-section" id="ps4">
+      <h3 style="font-size:1.1rem;font-weight:800;margin-bottom:6px">Tell us about yourself</h3>
+      <p style="font-size:.85rem;color:var(--muted);margin-bottom:24px">A short bio helps employers understand your value</p>
+      <div class="fgrp">
+        <label class="flbl">Professional Bio</label>
+        <textarea class="finp" id="ps4Bio" rows="5" placeholder="e.g. I'm a full-stack developer with 3 years of experience in Flutter and Firebase, based in Addis Ababa. I specialize in building high-quality mobile apps for Ethiopian businesses..." style="resize:vertical;padding-top:13px"></textarea>
+      </div>
+      <div class="fgrp">
+        <label class="flbl">Portfolio / Website (optional)</label>
+        <div class="finp-wrap"><input class="finp" id="ps4Portfolio" type="url" placeholder="https://your-portfolio.com"><i class='bx bx-link finp-icon'></i></div>
+      </div>
+      <div class="psetup-nav-btns">
+        <button class="psetup-skip" onclick="nextSetupStep(3)">← Back</button>
+        <button class="btn btn-green" id="finishSetupBtn" onclick="finishProfileSetup()">Finish Setup 🎉</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /profileSetupPage -->
+
+
+<!-- ══════════════════════════════════════════
+     HOME PAGE (post-login)
+══════════════════════════════════════════ -->
+<div id="homePage" class="page">
+<div class="tibeb"></div>
+<nav class="home-nav">
+  <span class="logo" onclick="showPage('homePage')">ei<em>verr</em></span>
+  <div class="home-nav-center">
+    <i class='bx bx-search'></i>
+    <input type="text" placeholder="Search jobs, skills, companies…">
+  </div>
+  <div class="home-nav-right">
+    <button class="notif-btn" onclick="toggleNotifPanel()" id="notifBtn">
+      <i class='bx bx-bell'></i>
+      <div class="notif-badge" id="notifBadge" style="display:none"></div>
+    </button>
+    <div style="position:relative">
+      <div class="avatar-btn" id="avatarBtn" onclick="toggleAvatarMenu()">
+        <img id="navAvatar" src="" alt="" style="display:none">
+        <span id="avatarInitial">D</span>
+      </div>
+      <div class="avatar-menu" id="avatarMenu">
+        <div class="avatar-menu-header">
+          <div class="av-name" id="menuName">Dawit Solomon</div>
+          <div class="av-role" id="menuRole">Freelancer</div>
+        </div>
+        <div class="am-item" onclick="showPage('profilePage')"><i class='bx bx-user'></i> My Profile</div>
+        <div class="am-item" onclick="showPage('applicationsPage')"><i class='bx bx-send'></i> My Applications</div>
+        <div class="am-item" onclick="showPage('myJobsPage')"><i class='bx bx-briefcase'></i> My Posted Jobs</div>
+        <div class="am-item" onclick="openPostJobModal()"><i class='bx bx-plus-circle'></i> Post a Job</div>
+        <div class="am-sep"></div>
+        <div class="am-item am-logout" onclick="doLogout()"><i class='bx bx-log-out'></i> Log Out</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- Notifications Panel -->
+<div class="notif-panel" id="notifPanel">
+  <div class="notif-panel-header">
+    <h3>Notifications</h3>
+    <button class="notif-mark-read" onclick="markAllRead()">Mark all read</button>
+  </div>
+  <div class="notif-list" id="notifList">
+    <div class="empty-state" style="padding:30px 20px"><i class='bx bx-bell-off' style="font-size:2rem;margin-bottom:8px"></i><p>No notifications yet</p></div>
+  </div>
+</div>
+
+<div class="home-hero">
+  <div class="home-hero-tibeb"></div>
+  <div class="home-hero-inner">
+    <div class="home-greeting">
+      <div class="greeting-tag">🇪🇹 eiverr Dashboard</div>
+      <h1>ይናፍቃል፣ <em id="heroUserName">Dawit</em>!</h1>
+      <div class="amh">እንኳን ደህና መጡ — ዛሬ ምን ሥራ አለ?</div>
+      <p>Your personalised workspace. Find jobs, manage proposals, and track your earnings — all in one place.</p>
+      <div class="home-hero-btns">
+        <button class="hh-btn hh-btn-gold" onclick="loadJobs()">Browse Jobs</button>
+        <button class="hh-btn hh-btn-outline" onclick="showPage('profilePage')">View My Profile</button>
+      </div>
+    </div>
+    <div class="home-stats-strip">
+      <div class="hstat"><div class="hstat-n">0 <em>ETB</em></div><div class="hstat-l">Total Earned</div></div>
+      <div class="hstat"><div class="hstat-n" id="statJobs">0</div><div class="hstat-l">Active Jobs</div></div>
+      <div class="hstat"><div class="hstat-n" id="statProposals">0</div><div class="hstat-l">Proposals</div></div>
+      <div class="hstat"><div class="hstat-n">—</div><div class="hstat-l">Rating</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="home-body">
+  <div class="quick-actions">
+    <div class="qa-card" onclick="loadJobs()"><div class="qa-icon green"><i class='bx bx-search-alt'></i></div><div class="qa-title">Find Work</div><div class="qa-sub">Browse open projects in your skills</div><div class="qa-arrow">→</div></div>
+    <div class="qa-card" onclick="showPage('applicationsPage')"><div class="qa-icon gold"><i class='bx bx-send'></i></div><div class="qa-title">My Applications</div><div class="qa-sub">Track bids & responses</div><div class="qa-arrow">→</div></div>
+    <div class="qa-card" onclick="openPostJobModal()"><div class="qa-icon red"><i class='bx bx-plus-circle'></i></div><div class="qa-title">Post a Job</div><div class="qa-sub">200 ETB · Refund if no hire</div><div class="qa-arrow">→</div></div>
+    <div class="qa-card" onclick="showPage('profilePage')"><div class="qa-icon blue"><i class='bx bx-id-card'></i></div><div class="qa-title">My Profile</div><div class="qa-sub">Edit skills, portfolio & bio</div><div class="qa-arrow">→</div></div>
+  </div>
+
+  <div class="home-cols">
+    <!-- JOB FEED -->
+    <div class="feed-section">
+      <div class="feed-header">
+        <div class="feed-title">Available Jobs</div>
+        <div class="feed-tabs">
+          <button class="feed-tab on" onclick="switchFeedTab(this,'all')">All Jobs</button>
+          <button class="feed-tab" onclick="switchFeedTab(this,'mine')">My Skills</button>
+          <button class="feed-tab" onclick="switchFeedTab(this,'saved')">Saved</button>
+        </div>
+      </div>
+      <div id="jobFeed">
+        <!-- Jobs loaded dynamically -->
+        <div class="empty-state"><i class='bx bx-loader-circle' style="animation:spin .8s linear infinite"></i><h3>Loading jobs…</h3></div>
+      </div>
+      <div style="text-align:center;padding:24px 0">
+        <button class="btn btn-outline" style="font-size:.85rem" onclick="loadJobs()">Refresh Jobs <i class='bx bx-refresh'></i></button>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="profile-card">
+        <div class="profile-card-banner"></div>
+        <div class="profile-card-body">
+          <div class="profile-avatar" id="sidebarAvatar"><img id="sidebarAvatarImg" src="" alt="" style="display:none"><span id="sidebarAvatarLetter">D</span></div>
+          <div class="profile-name" id="sidebarName">Dawit Solomon</div>
+          <div class="profile-role" id="sidebarRole">Freelancer · Addis Ababa 🇪🇹</div>
+          <div id="sidebarSkills" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px"></div>
+          <div class="profile-stats">
+            <div class="ps-item"><div class="ps-n">0</div><div class="ps-l">Jobs</div></div>
+            <div class="ps-item"><div class="ps-n">—</div><div class="ps-l">Rating</div></div>
+            <div class="ps-item"><div class="ps-n">0</div><div class="ps-l">Reviews</div></div>
+          </div>
+          <div class="profile-complete">
+            <div class="pc-label"><span>Profile Strength</span><span style="color:var(--green)" id="profileStrength">40%</span></div>
+            <div class="pc-bar"><div class="pc-fill" id="profileFill" style="width:40%"></div></div>
+            <div style="font-size:.7rem;color:var(--muted);margin-top:6px">Complete your profile to get more visibility</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="eth-banner">
+        <div class="eth-flag">🇪🇹</div>
+        <div class="eth-banner-text"><h4>eiverr is proudly Ethiopian</h4><p>All payments in ETB via Telebirr & CBE. Serving talent across Addis, Dire Dawa, Mekelle & beyond.</p></div>
+      </div>
+
+      <div class="post-job-prompt">
+        <h4>Need to hire someone?</h4>
+        <p>Post a job for 200 Birr. Fully refunded if no candidate is found by the deadline.</p>
+        <button class="pjp-btn" onclick="openPostJobModal()">Post a Job →</button>
+      </div>
+
+      <div class="widget-card">
+        <div class="widget-title"><i class='bx bx-trending-up'></i> Trending Skills in Ethiopia</div>
+        <div>
+          <span class="skill-pill">Flutter <span class="pill-count">+42%</span></span>
+          <span class="skill-pill">React <span class="pill-count">+38%</span></span>
+          <span class="skill-pill">Amharic Writing <span class="pill-count">+31%</span></span>
+          <span class="skill-pill">Video Editing <span class="pill-count">+27%</span></span>
+          <span class="skill-pill">UI/UX Design <span class="pill-count">+24%</span></span>
+          <span class="skill-pill">Python <span class="pill-count">+17%</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="foot-grid">
+    <div><div class="foot-logo">ei<em>verr</em></div><div class="foot-about">Empowering the Ethiopian digital workforce. Real work. Real pay. In Ethiopian Birr.</div></div>
+    <div><div class="foot-h">For Clients</div><ul class="foot-ul"><li><a href="#">How to Hire</a></li><li><a href="#" onclick="openPostJobModal()">Post a Job</a></li></ul></div>
+    <div><div class="foot-h">For Talent</div><ul class="foot-ul"><li><a href="#">Find Work</a></li><li><a href="#">Payment Guides</a></li></ul></div>
+    <div><div class="foot-h">Contact</div><ul class="foot-ul"><li><a href="mailto:davidfooter09@gmail.com">davidfooter09@gmail.com</a></li><li><a href="tel:0931308691">0931308691</a></li></ul></div>
+  </div>
+  <div class="foot-bottom"><div class="foot-copy">© 2026 eiverr · Addis Ababa, Ethiopia 🇪🇹</div><div class="built-by">Built by Dawit Solomon</div></div>
+</footer>
+<div class="tibeb"></div>
+</div><!-- /homePage -->
+
+
+<!-- ══════════════════════════════════════════
+     PROFILE EDIT PAGE
+══════════════════════════════════════════ -->
+<div id="profilePage" class="page">
+<div class="tibeb"></div>
+<nav class="home-nav">
+  <span class="logo" onclick="showPage('homePage')">ei<em>verr</em></span>
+  <div class="home-nav-right" style="margin-left:auto">
+    <button class="btn btn-outline" onclick="showPage('homePage')">← Dashboard</button>
+  </div>
+</nav>
+<div class="profile-page-wrap">
+  <div class="profile-page-header">
+    <button class="back-btn" onclick="showPage('homePage')"><i class='bx bx-arrow-back'></i> Dashboard</button>
+    <h2 style="font-size:1.4rem;font-weight:800">My Profile</h2>
+  </div>
+  <div class="profile-page-card">
+    <div class="profile-page-banner"></div>
+    <div class="profile-page-av-wrap">
+      <div class="profile-page-av" id="profilePageAv" title="Click to change photo">
+        <img id="profilePageImg" src="" alt="" style="display:none">
+        <span id="profilePageInitial">D</span>
+        <input type="file" id="profilePhotoInput" accept="image/*" onchange="handleProfilePhotoChange(event)">
+      </div>
+      <div style="margin-top:14px">
+        <div class="profile-edit-grid">
+          <div class="fgrp"><label class="flbl">First Name</label><div class="finp-wrap"><input class="finp" id="epFirst" type="text"><i class='bx bx-user finp-icon'></i></div></div>
+          <div class="fgrp"><label class="flbl">Last Name</label><div class="finp-wrap"><input class="finp" id="epLast" type="text"><i class='bx bx-user finp-icon'></i></div></div>
+          <div class="fgrp"><label class="flbl">Location</label><div class="finp-wrap"><input class="finp" id="epLocation" type="text" placeholder="Addis Ababa, Ethiopia"><i class='bx bx-map-pin finp-icon'></i></div></div>
+          <div class="fgrp"><label class="flbl">Hourly Rate (ETB)</label><div class="finp-wrap"><input class="finp" id="epRate" type="number" placeholder="200"><i class='bx bx-money finp-icon'></i></div></div>
+        </div>
+        <div class="fgrp"><label class="flbl">Bio</label><textarea class="finp" id="epBio" rows="4" style="resize:vertical;padding-top:13px" placeholder="Tell employers about your experience and skills…"></textarea></div>
+        <div class="fgrp">
+          <label class="flbl">Skills</label>
+          <div class="tags-input-wrap" id="epSkillsWrap">
+            <input type="text" id="epSkillInput" placeholder="Add skill…" onkeydown="handleEpSkillInput(event)">
+          </div>
+        </div>
+        <div class="fgrp"><label class="flbl">Phone / Telebirr</label><div class="finp-wrap"><input class="finp" id="epPhone" type="tel"><i class='bx bx-phone finp-icon'></i></div></div>
+        <div class="fgrp"><label class="flbl">Telegram Username</label><div class="finp-wrap"><input class="finp" id="epTelegram" type="text" placeholder="@yourusername"><i class='bx bx-send finp-icon'></i></div></div>
+        <div class="fgrp"><label class="flbl">Portfolio / Website</label><div class="finp-wrap"><input class="finp" id="epPortfolio" type="url"><i class='bx bx-link finp-icon'></i></div></div>
+        <button class="btn btn-green" onclick="saveProfile()" style="width:100%;justify-content:center;padding:14px">Save Changes <i class='bx bx-check'></i></button>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /profilePage -->
+
+
+<!-- ══════════════════════════════════════════
+     MY APPLICATIONS PAGE
+══════════════════════════════════════════ -->
+<div id="applicationsPage" class="page">
+<div class="tibeb"></div>
+<nav class="home-nav">
+  <span class="logo" onclick="showPage('homePage')">ei<em>verr</em></span>
+  <div class="home-nav-right" style="margin-left:auto">
+    <button class="btn btn-outline" onclick="showPage('homePage')">← Dashboard</button>
+  </div>
+</nav>
+<div class="apps-wrap">
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px">
+    <button class="back-btn" onclick="showPage('homePage')"><i class='bx bx-arrow-back'></i> Dashboard</button>
+    <h2 style="font-size:1.4rem;font-weight:800">My Applications</h2>
+  </div>
+  <div id="applicationsList">
+    <div class="empty-state"><i class='bx bx-send'></i><h3>No applications yet</h3><p>Start applying to jobs to see them here</p></div>
+  </div>
+</div>
+</div><!-- /applicationsPage -->
+
+
+<!-- ══════════════════════════════════════════
+     MY POSTED JOBS PAGE
+══════════════════════════════════════════ -->
+<div id="myJobsPage" class="page">
+<div class="tibeb"></div>
+<nav class="home-nav">
+  <span class="logo" onclick="showPage('homePage')">ei<em>verr</em></span>
+  <div class="home-nav-right" style="margin-left:auto">
+    <button class="btn btn-green" onclick="openPostJobModal()">+ Post New Job</button>
+    <button class="btn btn-outline" onclick="showPage('homePage')">← Dashboard</button>
+  </div>
+</nav>
+<div class="myjobs-wrap">
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px">
+    <button class="back-btn" onclick="showPage('homePage')"><i class='bx bx-arrow-back'></i> Dashboard</button>
+    <h2 style="font-size:1.4rem;font-weight:800">My Posted Jobs</h2>
+  </div>
+  <div id="myJobsList">
+    <div class="empty-state"><i class='bx bx-briefcase'></i><h3>No posted jobs yet</h3><p>Post a job for 200 ETB to start receiving applications</p><button class="btn btn-green" style="margin-top:16px" onclick="openPostJobModal()">Post a Job →</button></div>
+  </div>
+</div>
+</div><!-- /myJobsPage -->
+
+
+<!-- ══════════════════════════════════════════
+     POST JOB MODAL
+══════════════════════════════════════════ -->
+<div class="modal-overlay" id="postJobModal">
+  <div class="modal-box" style="max-width:600px">
+    <div class="modal-header">
+      <h2>Post a Job</h2>
+      <button class="modal-close" onclick="closeModal('postJobModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="pj-progress">
+        <div class="pj-bar on" id="pjBar1"></div>
+        <div class="pj-bar" id="pjBar2"></div>
+        <div class="pj-bar" id="pjBar3"></div>
+      </div>
+
+      <!-- STEP 1: Job Details -->
+      <div class="pj-step on" id="pjStep1">
+        <div class="pay-info-box">
+          <h4>💰 200 ETB Posting Fee</h4>
+          <p>Your post reaches all active freelancers. If no one is hired by the deadline, <strong>100% refund</strong> via Telebirr. Powered by eiverr escrow.</p>
+        </div>
+        <div class="fgrp"><label class="flbl">Job Title</label><div class="finp-wrap"><input class="finp" id="pjTitle" type="text" placeholder="e.g. Flutter Developer, Logo Designer, Video Editor"><i class='bx bx-briefcase finp-icon'></i></div></div>
+        <div class="fgrp"><label class="flbl">Category</label><select class="finp" id="pjCategory"><option>Development & IT</option><option>Design & Creative</option><option>Writing & Translation</option><option>Sales & Marketing</option><option>Video & Animation</option><option>Finance & Accounting</option><option>Engineering & Architecture</option><option>Legal Services</option><option>Admin & Support</option><option>Other</option></select></div>
+        <div class="frow">
+          <div class="fgrp"><label class="flbl">Budget (ETB)</label><div class="finp-wrap"><input class="finp" id="pjBudget" type="number" placeholder="e.g. 3000"><i class='bx bx-money finp-icon'></i></div></div>
+          <div class="fgrp"><label class="flbl">Budget Type</label><select class="finp" id="pjBudgetType"><option>Fixed Price</option><option>Hourly</option><option>Monthly</option></select></div>
+        </div>
+        <div class="fgrp"><label class="flbl">Location</label><div class="finp-wrap"><input class="finp" id="pjLocation" type="text" placeholder="Remote / Addis Ababa / etc."><i class='bx bx-map-pin finp-icon'></i></div></div>
+        <div class="fgrp"><label class="flbl">Job Description</label><textarea class="finp" id="pjDesc" rows="5" style="resize:vertical;padding-top:13px" placeholder="Describe the job clearly: what you need, deliverables, skills required, timeline…"></textarea></div>
+        <div class="fgrp"><label class="flbl">Required Skills (comma-separated)</label><div class="finp-wrap"><input class="finp" id="pjSkills" type="text" placeholder="e.g. Flutter, Firebase, UI Design"><i class='bx bx-code-alt finp-icon'></i></div></div>
+        <button class="btn btn-green" style="width:100%;justify-content:center;margin-top:8px" onclick="goToPostStep(2)">Continue to Payment →</button>
+      </div>
+
+      <!-- STEP 2: Deadline & Payment -->
+      <div class="pj-step" id="pjStep2">
+        <div class="deadline-grid">
+          <div class="fgrp"><label class="flbl">Application Deadline</label><div class="finp-wrap"><input class="finp" id="pjDeadline" type="date"><i class='bx bx-calendar finp-icon'></i></div></div>
+          <div class="fgrp"><label class="flbl">Urgency</label><select class="finp" id="pjUrgency"><option>Normal (7–14 days)</option><option>Urgent (1–3 days)</option><option>Flexible (30+ days)</option></select></div>
+        </div>
+        <div class="refund-note"><i class='bx bx-info-circle'></i><div>If no suitable candidate is found by the deadline, your <strong>200 ETB</strong> will be returned to your Telebirr account within 24 hours.</div></div>
+
+        <!-- Telebirr Payment Card -->
+        <div class="telebirr-card">
+          <div class="telebirr-logo-row">
+            <div class="telebirr-logo">📱 telebirr</div>
+            <span style="font-size:.85rem;color:rgba(255,255,255,.6)">Send Payment To</span>
+          </div>
+          <div class="telebirr-amount">200 ETB</div>
+          <div class="telebirr-label">JOB POSTING FEE · EIVERR</div>
+          <div class="telebirr-divider"></div>
+          <div class="pay-recipient">
+            <div class="pay-recipient-icon">👤</div>
+            <div class="pay-recipient-info">
+              <div class="pay-recipient-name">Dawit Solomon</div>
+              <div class="pay-recipient-phone">📞 0931308691</div>
+            </div>
+            <div style="background:rgba(255,255,255,.15);padding:6px 12px;border-radius:8px;font-size:.78rem;font-weight:700">Admin</div>
+          </div>
+          <div class="pay-note">Open your Telebirr app → Send Money → Enter 0931308691 → Amount: 200 ETB → Note: "Job Post [your name]"</div>
+        </div>
+
+        <div class="fgrp"><label class="flbl">Your Telebirr Number (for refund)</label><div class="finp-wrap"><input class="finp" id="pjTelebirr" type="tel" placeholder="e.g. 0931000000"><i class='bx bx-phone finp-icon'></i></div></div>
+        <div class="fgrp"><label class="flbl">Payment Reference / Screenshot Note</label><div class="finp-wrap"><input class="finp" id="pjPayRef" type="text" placeholder="Transaction ID or reference from Telebirr"><i class='bx bx-receipt finp-icon'></i></div></div>
+        <div style="display:flex;gap:10px;margin-top:8px">
+          <button class="btn btn-outline" onclick="goToPostStep(1)">← Back</button>
+          <button class="btn btn-green" style="flex:1;justify-content:center" id="submitJobBtn" onclick="submitJob()">Submit Job Post ✓</button>
+        </div>
+      </div>
+
+      <!-- STEP 3: Confirmation -->
+      <div class="pj-step" id="pjStep3">
+        <div style="text-align:center;padding:20px 0">
+          <div style="width:72px;height:72px;background:rgba(0,107,63,.1);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:2rem">✅</div>
+          <h3 style="font-size:1.3rem;font-weight:800;margin-bottom:8px">Job Posted Successfully!</h3>
+          <p style="color:var(--muted);font-size:.9rem;margin-bottom:8px">Your job is now live. Freelancers can see and apply immediately.</p>
+          <p style="color:var(--muted);font-size:.82rem;margin-bottom:24px">Payment verification will be confirmed by admin within a few hours. Contact: <strong>0931308691</strong></p>
+          <div style="display:flex;gap:10px;justify-content:center">
+            <button class="btn btn-green" onclick="closeModal('postJobModal');showPage('myJobsPage')">View My Jobs →</button>
+            <button class="btn btn-outline" onclick="closeModal('postJobModal')">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     APPLY MODAL
+══════════════════════════════════════════ -->
+<div class="modal-overlay" id="applyModal">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-header">
+      <div>
+        <h2>Apply for Job</h2>
+        <p style="font-size:.83rem;color:var(--muted);margin-top:4px" id="applyJobTitle">Job Title</p>
+      </div>
+      <button class="modal-close" onclick="closeModal('applyModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="apply-contact-info" id="applyContactPreview">
+        <strong>Your contact info that will be shared if shortlisted:</strong><br>
+        <span id="applyContactText">Not set — update your profile first</span>
+      </div>
+      <div class="fgrp">
+        <label class="flbl">Cover Message</label>
+        <textarea class="finp" id="applyMessage" rows="5" style="resize:vertical;padding-top:13px" placeholder="Briefly explain why you're the right person for this job. Mention relevant experience, portfolio links, or your timeline…"></textarea>
+      </div>
+      <div class="fgrp">
+        <label class="flbl">Your Phone / Telegram (for this application)</label>
+        <div class="finp-wrap"><input class="finp" id="applyContact" type="text" placeholder="+251 9XX XXX XXX or @telegram"><i class='bx bx-phone finp-icon'></i></div>
+      </div>
+      <div style="background:#f0f5f0;border-radius:10px;padding:12px;font-size:.78rem;color:var(--muted);margin-bottom:18px;line-height:1.55">
+        <i class='bx bx-info-circle'></i> Your application will be reviewed by the employer. If shortlisted, your contact info will be shared. You'll receive a notification here.
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-outline" style="flex:1;justify-content:center" onclick="closeModal('applyModal')">Cancel</button>
+        <button class="btn btn-green" style="flex:2;justify-content:center" id="submitApplyBtn" onclick="submitApplication()">Submit Application →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════
+     SCRIPTS
+══════════════════════════════════════════ -->
+<script>
+/* ── Cursor ── */
+const cur=document.getElementById('cur'),curR=document.getElementById('cur-r');
+let mx=0,my=0,rx=0,ry=0;
+document.addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY;cur.style.left=mx+'px';cur.style.top=my+'px'});
+(function raf(){rx+=(mx-rx)*.12;ry+=(my-ry)*.12;curR.style.left=rx+'px';curR.style.top=ry+'px';requestAnimationFrame(raf)})();
+
+/* ── Scroll Reveal ── */
+function initReveal(){
+  const els=document.querySelectorAll('.rv:not(.in)');
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in')}),{threshold:.1});
+  els.forEach(e=>io.observe(e));
+}
+initReveal();
+
+/* ── Live Landing Stats ── */
+(async function loadLiveStats() {
+  if (!window._fb) { setTimeout(loadLiveStats, 800); return; }
+  try {
+    const { db, collection, getDocs } = window._fb;
+    const [usersSnap, jobsSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      getDocs(collection(db, 'jobs'))
+    ]);
+    const uCount = usersSnap.size;
+    const jCount = jobsSnap.size;
+    const uEl = document.getElementById('liveUserCount');
+    const jEl = document.getElementById('liveJobCount');
+    const notice = document.getElementById('noUsersNotice');
+    if (uEl) uEl.innerHTML = uCount > 0 ? uCount + '<em>+</em>' : 'Soon';
+    if (jEl) jEl.innerHTML = jCount > 0 ? jCount + '' : 'New';
+    if (notice && uCount === 0) notice.style.display = 'block';
+  } catch(e) {}
+})();
+
+
+/* ── Toast ── */
+function showToast(msg,type='green'){
+  const t=document.getElementById('toast');
+  const s=document.getElementById('toastMsg');
+  t.className='toast '+type;
+  s.textContent=msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+/* ── Page System ── */
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const pg=document.getElementById(id);
+  if(pg){pg.classList.add('active');window.scrollTo(0,0);}
+  closeAvatarMenu();
+  closeNotifPanel();
+  if(id==='homePage'){loadJobs();loadNotifications();}
+  if(id==='profilePage'){populateProfileEdit();}
+  if(id==='applicationsPage'){loadApplications();}
+  if(id==='myJobsPage'){loadMyJobs();}
+  setTimeout(initReveal,100);
+}
+
+/* ── Auth ── */
+const authPage=document.getElementById('authPage');
+let selectedRole='freelancer';
+function openAuth(tab){authPage.classList.add('show');document.body.style.overflow='hidden';authSwitch(tab);}
+function closeAuth(){authPage.classList.remove('show');document.body.style.overflow='';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeAuth();closeAllModals();}});
+function authSwitch(tab){
+  const tL=document.getElementById('tabLogin'),tS=document.getElementById('tabSignup');
+  const cL=document.getElementById('tcLogin'),cS=document.getElementById('tcSignup');
+  const h=document.getElementById('authHeadline');
+  [cL,cS].forEach(c=>c.classList.remove('on'));
+  if(tab==='login'){tL.classList.add('on');tS.classList.remove('on');cL.classList.add('on');h.innerHTML='ወደ ቤትዎ እንኳን ደህና መጡ<br><span style="color:rgba(255,255,255,.55);font-size:.85em">Welcome back.<br>Sign in to continue.</span>';}
+  else{tS.classList.add('on');tL.classList.remove('on');cS.classList.add('on');h.innerHTML='ችሎታዎን ያሳዩ<br><span style="color:rgba(255,255,255,.55);font-size:.85em">Find work. Get paid.<br>Own your future.</span>';}
+}
+function pickRole(role,el){
+  selectedRole=role;
+  document.querySelectorAll('.role-opt').forEach(r=>r.classList.remove('on'));
+  el.classList.add('on');
+}
+
+
+/* ── Google Sign-In ── */
+async function signInWithGoogle(){
+  if(!window._fb){showToast('Loading…','red');return;}
+  const {auth,signInWithPopup,googleProvider,db,doc,getDoc,setDoc,serverTimestamp}=window._fb;
+  try{
+    const result=await signInWithPopup(auth,googleProvider);
+    const user=result.user;
+    const snap=await getDoc(doc(db,'users',user.uid));
+    let profile;
+    if(!snap.exists()){
+      // New Google user — create profile with profileComplete:true
+      // (Google already gives us name + photo, no setup needed)
+      profile={
+        displayName:user.displayName||user.email.split('@')[0],
+        email:user.email,
+        photoURL:user.photoURL||'',
+        role:'freelancer',
+        profileComplete:true,
+        createdAt:serverTimestamp()
+      };
+      await setDoc(doc(db,'users',user.uid),profile);
+    } else {
+      profile=snap.data();
+      // If existing user didn't finish setup, mark complete now
+      if(!profile.profileComplete){
+        profile.profileComplete=true;
+        await setDoc(doc(db,'users',user.uid),{profileComplete:true},{merge:true});
+      }
+    }
+    closeAuth();
+    showToast('Welcome, '+profile.displayName.split(' ')[0]+' ✓');
+    // Navigate directly — don't wait for onAuthStateChanged
+    window._authNavLock = true;
+    window._currentUser=user;
+    window._userProfile=profile;
+    enterHomePage(profile);
+    setTimeout(()=>{window._authNavLock=false;},2000);
+  }catch(e){
+    if(e.code!=='auth/popup-closed-by-user'){
+      showToast('Google sign-in failed: '+e.message,'red');
+    }
+  }
+}
+
+async function doLogin(){
+  const email=document.getElementById('loginEmail').value.trim();
+  const pass=document.getElementById('loginPass').value;
+  const err=document.getElementById('loginErr');
+  const btn=document.getElementById('loginBtn');
+  if(!email||!pass){err.textContent='Please enter email and password.';err.classList.add('show');return;}
+  btn.innerHTML='<div class="spinner"></div> Signing in…';btn.disabled=true;
+  try{
+    const cred=await window._fb.signInWithEmailAndPassword(window._fb.auth,email,pass);
+    closeAuth();
+    // Direct navigation — onAuthStateChanged will also fire but this is faster
+    const {db,doc,getDoc}=window._fb;
+    const snap=await getDoc(doc(db,'users',cred.user.uid));
+    if(snap.exists()){
+      window._authNavLock = true;
+      window._currentUser=cred.user;
+      window._userProfile=snap.data();
+      enterHomePage(snap.data());
+      setTimeout(()=>{window._authNavLock=false;},2000);
+    } else {
+      window._currentUser=cred.user;
+      window._userProfile={displayName:cred.user.displayName||email.split('@')[0],email:cred.user.email,role:'freelancer'};
+      enterHomePage(window._userProfile);
+    }
+  }catch(e){
+    err.textContent=e.message.replace('Firebase: ','').replace(' (auth/invalid-credential).','').replace(' (auth/user-not-found).','Invalid email or password');
+    err.classList.add('show');
+    btn.innerHTML='Log In <i class="bx bx-right-arrow-alt"></i>';btn.disabled=false;
+  }
+}
+
+async function doSignup(){
+  const first=document.getElementById('signupFirst').value.trim();
+  const last=document.getElementById('signupLast').value.trim();
+  const email=document.getElementById('signupEmail').value.trim();
+  const pass=document.getElementById('signupPass').value;
+  const err=document.getElementById('signupErr');
+  const btn=document.getElementById('signupBtn');
+  if(!first||!email||!pass){err.textContent='Please fill in all required fields.';err.classList.add('show');return;}
+  if(pass.length<8){err.textContent='Password must be at least 8 characters.';err.classList.add('show');return;}
+  btn.innerHTML='<div class="spinner"></div> Creating account…';btn.disabled=true;
+  try{
+    const {user}=await window._fb.createUserWithEmailAndPassword(window._fb.auth,email,pass);
+    await window._fb.updateProfile(user,{displayName:`${first} ${last}`.trim()});
+    await window._fb.setDoc(window._fb.doc(window._fb.db,'users',user.uid),{
+      displayName:`${first} ${last}`.trim(),
+      email,role:selectedRole,
+      createdAt:window._fb.serverTimestamp(),
+      profileComplete:false
+    });
+    // Navigate to home immediately after signup
+    window._currentUser=user;
+    window._userProfile={
+      displayName:first+' '+last,
+      email:email,
+      role:selectedRole,
+      profileComplete:false
+    };
+    closeAuth();
+    // New email users go to profile setup to fill in skills etc.
+    showPage('profileSetupPage');
+  }catch(e){
+    err.textContent=e.message.replace('Firebase: ','');
+    err.classList.add('show');
+    btn.innerHTML='Create Account <i class="bx bx-right-arrow-alt"></i>';btn.disabled=false;
+  }
+}
+
+async function doLogout(){
+  await window._fb.signOut(window._fb.auth);
+  window._userProfile=null;
+  window._currentUser=null;
+  closeAvatarMenu();
+}
+
+/* ── Enter Home Page ── */
+function enterHomePage(profile){
+  const name=(profile.displayName||'').split(' ')[0]||'Friend';
+  const initial=name.charAt(0).toUpperCase();
+  document.getElementById('heroUserName').textContent=name;
+  document.getElementById('menuName').textContent=profile.displayName||name;
+  document.getElementById('menuRole').textContent=profile.role==='client'?'Client / Employer':'Freelancer';
+  document.getElementById('avatarInitial').textContent=initial;
+  document.getElementById('sidebarName').textContent=profile.displayName||name;
+  document.getElementById('sidebarRole').textContent=(profile.role==='client'?'Client':'Freelancer')+(profile.location?` · ${profile.location}`:'');
+  // Avatar photo
+  if(profile.photoURL){
+    const img=document.getElementById('navAvatar');
+    img.src=profile.photoURL;img.style.display='block';
+    document.getElementById('avatarInitial').style.display='none';
+    document.getElementById('sidebarAvatarImg').src=profile.photoURL;
+    document.getElementById('sidebarAvatarImg').style.display='block';
+    document.getElementById('sidebarAvatarLetter').style.display='none';
+    document.getElementById('profilePageImg').src=profile.photoURL;
+    document.getElementById('profilePageImg').style.display='block';
+    document.getElementById('profilePageInitial').style.display='none';
+  } else {
+    document.getElementById('avatarInitial').textContent=initial;
+    document.getElementById('sidebarAvatarLetter').textContent=initial;
+    document.getElementById('profilePageInitial').textContent=initial;
+  }
+  // Skills in sidebar
+  const sw=document.getElementById('sidebarSkills');
+  sw.innerHTML='';
+  if(profile.skills&&profile.skills.length){
+    profile.skills.slice(0,3).forEach(s=>{
+      const sp=document.createElement('span');
+      sp.className='skill-pill';sp.style.cssText='margin:0;font-size:.68rem';sp.textContent=s;
+      sw.appendChild(sp);
+    });
+  }
+  // Profile strength
+  let str=20;
+  if(profile.photoURL)str+=20;
+  if(profile.skills&&profile.skills.length)str+=20;
+  if(profile.bio)str+=20;
+  if(profile.phone||profile.telegram)str+=20;
+  document.getElementById('profileStrength').textContent=str+'%';
+  document.getElementById('profileFill').style.width=str+'%';
+  showPage('homePage');
+}
+
+/* ── Avatar Menu ── */
+function toggleAvatarMenu(){document.getElementById('avatarMenu').classList.toggle('open');}
+function closeAvatarMenu(){document.getElementById('avatarMenu').classList.remove('open');}
+document.addEventListener('click',e=>{
+  const btn=document.getElementById('avatarBtn');const menu=document.getElementById('avatarMenu');
+  if(menu&&btn&&!btn.contains(e.target)&&!menu.contains(e.target))menu.classList.remove('open');
+});
+
+/* ── Notifications ── */
+function toggleNotifPanel(){document.getElementById('notifPanel').classList.toggle('open');}
+function closeNotifPanel(){document.getElementById('notifPanel').classList.remove('open');}
+document.addEventListener('click',e=>{
+  const btn=document.getElementById('notifBtn');const panel=document.getElementById('notifPanel');
+  if(panel&&btn&&!btn.contains(e.target)&&!panel.contains(e.target))panel.classList.remove('open');
+});
+
+async function loadNotifications(){
+  if(!window._currentUser)return;
+  const {db,collection,query,where,orderBy,getDocs}=window._fb;
+  try{
+    const q=query(collection(db,'notifications'),where('userId','==',window._currentUser.uid),orderBy('createdAt','desc'));
+    const snap=await getDocs(q);
+    const list=document.getElementById('notifList');
+    const badge=document.getElementById('notifBadge');
+    if(snap.empty){list.innerHTML='<div class="empty-state" style="padding:30px 20px"><i class="bx bx-bell-off" style="font-size:2rem;margin-bottom:8px;display:block"></i><p>No notifications yet</p></div>';badge.style.display='none';return;}
+    let unread=0;
+    list.innerHTML='';
+    snap.forEach(d=>{
+      const n=d.data();
+      if(!n.read)unread++;
+      const typeMap={shortlisted:{icon:'bx-star',cls:'gold'},rejected:{icon:'bx-x-circle',cls:'red'},applied:{icon:'bx-send',cls:'green'}};
+      const t=typeMap[n.type]||{icon:'bx-bell',cls:'green'};
+      list.innerHTML+=`<div class="notif-item ${n.read?'':'unread'}" onclick="markRead('${d.id}',this)">
+        <div class="notif-icon ${t.cls}"><i class="bx ${t.icon}"></i></div>
+        <div class="notif-content">
+          <div class="notif-title">${n.message}</div>
+          <div class="notif-time">${timeAgo(n.createdAt?.toDate())}</div>
+        </div>
+        ${!n.read?'<div class="notif-dot"></div>':''}
+      </div>`;
+    });
+    badge.style.display=unread>0?'block':'none';
+  }catch(e){console.log('Notif error:',e);}
+}
+async function markRead(id,el){
+  if(!window._currentUser)return;
+  const {db,doc,updateDoc}=window._fb;
+  await updateDoc(doc(db,'notifications',id),{read:true});
+  el.classList.remove('unread');el.querySelector('.notif-dot')?.remove();
+}
+async function markAllRead(){
+  if(!window._currentUser)return;
+  const {db,collection,query,where,getDocs,doc,updateDoc}=window._fb;
+  const q=query(collection(db,'notifications'),where('userId','==',window._currentUser.uid),where('read','==',false));
+  const snap=await getDocs(q);
+  snap.forEach(d=>updateDoc(doc(db,'notifications',d.id),{read:true}));
+  document.querySelectorAll('.notif-item.unread').forEach(el=>el.classList.remove('unread'));
+  document.getElementById('notifBadge').style.display='none';
+  document.querySelectorAll('.notif-dot').forEach(d=>d.remove());
+}
+function timeAgo(date){
+  if(!date)return 'just now';
+  const s=Math.floor((new Date()-date)/1000);
+  if(s<60)return 'just now';if(s<3600)return Math.floor(s/60)+'m ago';
+  if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';
+}
+
+/* ── Jobs Feed ── */
+let currentJobId=null,currentJobTitle='';
+async function loadJobs(){
+  const feed=document.getElementById('jobFeed');
+  feed.innerHTML='<div class="empty-state"><i class="bx bx-loader-circle" style="animation:spin .8s linear infinite;display:block;font-size:2rem;margin-bottom:10px"></i><p>Loading jobs…</p></div>';
+  if(!window._fb){setTimeout(loadJobs,500);return;}
+  const {db,collection,query,orderBy,getDocs}=window._fb;
+  try{
+    const q=query(collection(db,'jobs'),orderBy('createdAt','desc'));
+    const snap=await getDocs(q);
+    if(snap.empty){
+      feed.innerHTML=renderSampleJobs();
+      return;
+    }
+    feed.innerHTML='';
+    snap.forEach(d=>{
+      const j={id:d.id,...d.data()};
+      feed.innerHTML+=renderJobCard(j);
+    });
+    if(snap.size<2)feed.innerHTML+=renderSampleJobs();
+  }catch(e){
+    feed.innerHTML=renderSampleJobs();
+  }
+}
+
+function renderJobCard(j){
+  const tags=(j.skills||'').split(',').filter(Boolean).slice(0,3).map(s=>`<span class="job-tag">${s.trim()}</span>`).join('');
+  return `<div class="job-card rv">
+    <div class="job-save" onclick="toggleSave(this)"><i class='bx bx-bookmark'></i></div>
+    <div class="job-card-top">
+      <div class="job-co">
+        <div class="job-co-logo">${(j.posterName||'J').charAt(0)}</div>
+        <div>
+          <div class="job-co-name">${j.posterName||'Employer'}</div>
+          <div class="job-title">${j.title||'Job Opening'}</div>
+        </div>
+      </div>
+      <div class="job-budget">${Number(j.budget||0).toLocaleString()} ETB<br><span>/ ${j.budgetType||'project'}</span></div>
+    </div>
+    <div class="job-tags">${tags}<span class="job-tag blue">${j.location||'Remote'}</span></div>
+    <p style="font-size:.82rem;color:var(--muted);line-height:1.55;margin-bottom:12px">${(j.description||'').slice(0,160)}…</p>
+    <div class="job-meta">
+      <span><i class='bx bx-map-pin'></i> ${j.location||'Ethiopia'}</span>
+      <span><i class='bx bx-time'></i> ${timeAgo(j.createdAt?.toDate())}</span>
+      <span><i class='bx bx-group'></i> ${j.applicantCount||0} proposals</span>
+    </div>
+    <div class="job-apply-row">
+      <button class="btn-apply" onclick="openApplyModal('${j.id}','${(j.title||'').replace(/'/g,"\\'")}')">Apply Now</button>
+    </div>
+  </div>`;
+}
+
+function renderSampleJobs(){
+  const jobs=[
+    {id:'s1',title:'Flutter Mobile App Developer',posterName:'Addis Tech Solutions',budget:3500,budgetType:'project',skills:'Flutter,Dart,Firebase',location:'Addis Ababa',description:'Build a delivery tracking mobile app for Android & iOS. Experience with Firebase and Google Maps API required. Payment via Telebirr upon milestone completion.',applicantCount:4},
+    {id:'s2',title:'Amharic Content Writer',posterName:'Birr Media Agency',budget:1200,budgetType:'article',skills:'Amharic,Copywriting',location:'Remote',description:'We need a skilled Amharic writer for weekly blog posts and social media content. Topics: tech, business, lifestyle. 3–5 articles per week expected.',applicantCount:2},
+    {id:'s3',title:'Logo & Brand Identity Designer',posterName:'eTrade Ethiopia',budget:2800,budgetType:'project',skills:'Illustrator,Branding,Logo Design',location:'Addis Ababa',description:'Design a full brand identity for a new Ethiopian e-commerce platform. Deliverables: logo, colour palette, typography, business card. Ethio-inspired aesthetic preferred.',applicantCount:7},
+  ];
+  return jobs.map(j=>renderJobCard(j)).join('');
+}
+
+function switchFeedTab(el){
+  document.querySelectorAll('.feed-tab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+}
+function toggleSave(el){
+  el.classList.toggle('saved');
+  el.innerHTML=el.classList.contains('saved')?"<i class='bx bxs-bookmark'></i>":"<i class='bx bx-bookmark'></i>";
+}
+
+/* ── Apply Flow ── */
+function openApplyModal(jobId,jobTitle){
+  currentJobId=jobId;currentJobTitle=jobTitle;
+  document.getElementById('applyJobTitle').textContent=jobTitle;
+  // Pre-fill contact from profile
+  const p=window._userProfile||{};
+  const contact=p.phone||p.telegram||'Not set — update your profile first';
+  document.getElementById('applyContactText').textContent=contact;
+  document.getElementById('applyContact').value=p.phone||p.telegram||'';
+  document.getElementById('applyMessage').value='';
+  openModal('applyModal');
+}
+async function submitApplication(){
+  if(!window._currentUser){showToast('Please log in first','red');return;}
+  const msg=document.getElementById('applyMessage').value.trim();
+  const contact=document.getElementById('applyContact').value.trim();
+  if(!msg){showToast('Please write a cover message','red');return;}
+  const btn=document.getElementById('submitApplyBtn');
+  btn.innerHTML='<div class="spinner"></div> Submitting…';btn.disabled=true;
+  const {db,collection,addDoc,serverTimestamp,doc,updateDoc}=window._fb;
+  try{
+    const profile=window._userProfile||{};
+    await addDoc(collection(db,'applications'),{
+      jobId:currentJobId,jobTitle:currentJobTitle,
+      userId:window._currentUser.uid,
+      applicantName:profile.displayName||window._currentUser.displayName||'Applicant',
+      applicantEmail:window._currentUser.email,
+      coverMessage:msg,contact,
+      status:'pending',
+      createdAt:serverTimestamp()
+    });
+    // Add notification for applicant
+    await addDoc(collection(db,'notifications'),{
+      userId:window._currentUser.uid,
+      type:'applied',message:`Application submitted for: ${currentJobTitle}`,
+      read:false,createdAt:serverTimestamp()
+    });
+    // Try to update applicant count
+    try{await updateDoc(doc(db,'jobs',currentJobId),{applicantCount:(window._fb.increment||1)});}catch(e){}
+    closeModal('applyModal');
+    showToast('Application submitted! 🎉');
+    // Update stats
+    const sc=document.getElementById('statProposals');
+    sc.textContent=parseInt(sc.textContent||'0')+1;
+  }catch(e){
+    showToast('Error: '+e.message,'red');
+  }
+  btn.innerHTML='Submit Application →';btn.disabled=false;
+}
+
+/* ── My Applications ── */
+async function loadApplications(){
+  if(!window._currentUser)return;
+  const {db,collection,query,where,orderBy,getDocs}=window._fb;
+  const list=document.getElementById('applicationsList');
+  list.innerHTML='<div class="empty-state"><i class="bx bx-loader-circle" style="animation:spin .8s linear infinite;display:block;font-size:2rem;margin-bottom:10px"></i><p>Loading…</p></div>';
+  try{
+    const q=query(collection(db,'applications'),where('userId','==',window._currentUser.uid),orderBy('createdAt','desc'));
+    const snap=await getDocs(q);
+    if(snap.empty){list.innerHTML='<div class="empty-state"><i class="bx bx-send"></i><h3>No applications yet</h3><p>Apply to jobs to see them here</p></div>';return;}
+    list.innerHTML='';
+    snap.forEach(d=>{
+      const a=d.data();
+      const statusClass={pending:'pending',shortlisted:'shortlisted',rejected:'rejected'}[a.status]||'pending';
+      const statusLabel={pending:'⏳ Pending',shortlisted:'✅ Shortlisted',rejected:'❌ Rejected'}[a.status]||'Pending';
+      let msgBlock='';
+      if(a.employerMessage){msgBlock=`<div class="app-msg">💬 "${a.employerMessage}"</div>`;}
+      list.innerHTML+=`<div class="app-item">
+        <div class="app-info">
+          <div class="app-job-title">${a.jobTitle||'Job'}</div>
+          <div class="app-company">Applied ${timeAgo(a.createdAt?.toDate())}</div>
+          ${msgBlock}
+        </div>
+        <div class="app-status ${statusClass}">${statusLabel}</div>
+      </div>`;
+    });
+  }catch(e){list.innerHTML='<div class="empty-state"><i class="bx bx-error"></i><h3>Could not load applications</h3></div>';}
+}
+
+/* ── Post Job ── */
+let pjCurrentStep=1;
+function openPostJobModal(){
+  pjCurrentStep=1;
+  ['pjStep1','pjStep2','pjStep3'].forEach(id=>{document.getElementById(id).classList.remove('on');});
+  document.getElementById('pjStep1').classList.add('on');
+  ['pjBar1','pjBar2','pjBar3'].forEach(id=>{document.getElementById(id).classList.remove('on');});
+  document.getElementById('pjBar1').classList.add('on');
+  // Set min deadline
+  const today=new Date();today.setDate(today.getDate()+3);
+  document.getElementById('pjDeadline').min=today.toISOString().split('T')[0];
+  document.getElementById('pjDeadline').value='';
+  closeAvatarMenu();
+  openModal('postJobModal');
+}
+function goToPostStep(n){
+  if(n===2){
+    const title=document.getElementById('pjTitle').value.trim();
+    if(!title){showToast('Please enter a job title','red');return;}
+  }
+  pjCurrentStep=n;
+  ['pjStep1','pjStep2','pjStep3'].forEach((id,i)=>{
+    document.getElementById(id).classList.toggle('on',i+1===n);
+    if(i+1<=n)document.getElementById(`pjBar${i+1}`).classList.add('on');
+    else document.getElementById(`pjBar${i+1}`).classList.remove('on');
+  });
+}
+async function submitJob(){
+  if(!window._currentUser){showToast('Please log in first','red');return;}
+  const telebirr=document.getElementById('pjTelebirr').value.trim();
+  const ref=document.getElementById('pjPayRef').value.trim();
+  if(!telebirr){showToast('Please enter your Telebirr number','red');return;}
+  if(!ref){showToast('Please enter the payment reference','red');return;}
+  const btn=document.getElementById('submitJobBtn');
+  btn.innerHTML='<div class="spinner"></div> Posting…';btn.disabled=true;
+  const {db,collection,addDoc,serverTimestamp}=window._fb;
+  const profile=window._userProfile||{};
+  try{
+    await addDoc(collection(db,'jobs'),{
+      title:document.getElementById('pjTitle').value.trim(),
+      category:document.getElementById('pjCategory').value,
+      budget:document.getElementById('pjBudget').value,
+      budgetType:document.getElementById('pjBudgetType').value,
+      location:document.getElementById('pjLocation').value.trim(),
+      description:document.getElementById('pjDesc').value.trim(),
+      skills:document.getElementById('pjSkills').value.trim(),
+      deadline:document.getElementById('pjDeadline').value,
+      urgency:document.getElementById('pjUrgency').value,
+      posterTelebirr:telebirr,
+      paymentRef:ref,
+      posterId:window._currentUser.uid,
+      posterName:profile.displayName||window._currentUser.displayName||'Employer',
+      posterEmail:window._currentUser.email,
+      status:'pending_payment',
+      applicantCount:0,
+      paymentAmount:200,
+      createdAt:serverTimestamp()
+    });
+    goToPostStep(3);
+    showToast('Job posted! Admin will verify payment soon 📋');
+    const sc=document.getElementById('statJobs');
+    sc.textContent=parseInt(sc.textContent||'0')+1;
+  }catch(e){
+    showToast('Error: '+e.message,'red');
+  }
+  btn.innerHTML='Submit Job Post ✓';btn.disabled=false;
+}
+
+/* ── My Posted Jobs ── */
+async function loadMyJobs(){
+  if(!window._currentUser)return;
+  const {db,collection,query,where,orderBy,getDocs}=window._fb;
+  const list=document.getElementById('myJobsList');
+  list.innerHTML='<div class="empty-state"><i class="bx bx-loader-circle" style="animation:spin .8s linear infinite;display:block;font-size:2rem;margin-bottom:10px"></i><p>Loading…</p></div>';
+  try{
+    const q=query(collection(db,'jobs'),where('posterId','==',window._currentUser.uid),orderBy('createdAt','desc'));
+    const snap=await getDocs(q);
+    if(snap.empty){list.innerHTML='<div class="empty-state"><i class="bx bx-briefcase"></i><h3>No posted jobs yet</h3><p>Post a job to start receiving applications</p><button class="btn btn-green" style="margin-top:16px" onclick="openPostJobModal()">Post a Job →</button></div>';return;}
+    list.innerHTML='';
+    const promises=[];
+    snap.forEach(d=>{
+      const j={id:d.id,...d.data()};
+      promises.push(loadApplicantsForJob(j));
+    });
+    const cards=await Promise.all(promises);
+    list.innerHTML=cards.join('');
+  }catch(e){list.innerHTML='<div class="empty-state"><i class="bx bx-error"></i><h3>Could not load jobs</h3></div>';}
+}
+
+async function loadApplicantsForJob(j){
+  const {db,collection,query,where,getDocs,addDoc,doc,updateDoc,serverTimestamp}=window._fb;
+  let appsHtml='';
+  try{
+    const q=query(collection(db,'applications'),where('jobId','==',j.id));
+    const snap=await getDocs(q);
+    snap.forEach(d=>{
+      const a=d.data();
+      const statusBadge={pending:'',shortlisted:'<span style="color:var(--green);font-size:.72rem;font-weight:700">✅ Shortlisted</span>',rejected:'<span style="color:var(--red);font-size:.72rem;font-weight:700">❌ Rejected</span>'}[a.status]||'';
+      appsHtml+=`<div class="applicant-row" id="aprow_${d.id}">
+        <div class="applicant-av">${(a.applicantName||'A').charAt(0)}</div>
+        <div class="applicant-info">
+          <div class="applicant-name">${a.applicantName||'Applicant'} ${statusBadge}</div>
+          <div class="applicant-cover">${(a.coverMessage||'').slice(0,100)}${(a.coverMessage||'').length>100?'…':''}</div>
+          ${a.contact?`<div style="font-size:.72rem;margin-top:3px;color:var(--green)"><i class="bx bx-phone"></i> ${a.contact}</div>`:''}
+        </div>
+        <div class="applicant-actions">
+          <button class="btn-shortlist" onclick="updateApplicant('${d.id}','${j.id}','${a.userId}','${(a.applicantName||'').replace(/'/g,"\\'")}','${(j.title||'').replace(/'/g,"\\'")}','shortlisted')">✅ Shortlist</button>
+          <button class="btn-reject" onclick="updateApplicant('${d.id}','${j.id}','${a.userId}','${(a.applicantName||'').replace(/'/g,"\\'")}','${(j.title||'').replace(/'/g,"\\'")}','rejected')">❌ Reject</button>
+        </div>
+      </div>`;
+    });
+    if(!appsHtml)appsHtml='<div style="font-size:.82rem;color:var(--muted);padding:10px 0">No applications yet</div>';
+  }catch(e){appsHtml='<div style="font-size:.82rem;color:var(--muted)">Could not load applicants</div>';}
+
+  const statusCls=j.status==='active'?'pjs-active':'pjs-closed';
+  const statusLabel=j.status==='active'?'Active':(j.status==='pending_payment'?'Pending Payment':'Closed');
+  return `<div class="posted-job-card">
+    <div class="posted-job-header">
+      <div><div class="posted-job-title">${j.title||'Job'}</div><div style="font-size:.75rem;color:var(--muted);margin-top:2px">${j.category||''} · ${Number(j.budget||0).toLocaleString()} ETB · Deadline: ${j.deadline||'N/A'}</div></div>
+      <span class="posted-job-status ${statusCls}">${statusLabel}</span>
+    </div>
+    <div class="applicants-list">${appsHtml}</div>
+  </div>`;
+}
+
+async function updateApplicant(appId,jobId,applicantUserId,applicantName,jobTitle,status){
+  const {db,doc,updateDoc,collection,addDoc,serverTimestamp}=window._fb;
+  try{
+    await updateDoc(doc(db,'applications',appId),{status});
+    const msgMap={shortlisted:`🎉 You've been shortlisted for: ${jobTitle}! The employer will contact you soon.`,rejected:`Thank you for applying to: ${jobTitle}. Unfortunately you were not selected this time.`};
+    await addDoc(collection(db,'notifications'),{
+      userId:applicantUserId,type:status,
+      message:msgMap[status]||`Application status updated for ${jobTitle}`,
+      read:false,createdAt:serverTimestamp()
+    });
+    const row=document.getElementById(`aprow_${appId}`);
+    if(row){
+      const lbl=row.querySelector('.applicant-name');
+      if(lbl){
+        const badge=status==='shortlisted'?'<span style="color:var(--green);font-size:.72rem;font-weight:700">✅ Shortlisted</span>':'<span style="color:var(--red);font-size:.72rem;font-weight:700">❌ Rejected</span>';
+        lbl.innerHTML=applicantName+' '+badge;
+      }
+      const acts=row.querySelector('.applicant-actions');
+      if(acts)acts.innerHTML='<span style="font-size:.75rem;color:var(--muted)">Updated</span>';
+    }
+    showToast(status==='shortlisted'?`${applicantName} shortlisted! They'll be notified.`:`${applicantName} rejected.`,status==='shortlisted'?'green':'red');
+  }catch(e){showToast('Error: '+e.message,'red');}
+}
+
+/* ── Profile Setup Flow ── */
+let setupCurrentStep=1;
+let profileSkills=[];
+let contactType='phone';
+let photoFile=null;
+
+function nextSetupStep(n){
+  setupCurrentStep=n;
+  for(let i=1;i<=4;i++){
+    document.getElementById('ps'+i).classList.toggle('on',i===n);
+    document.getElementById('step'+i).classList.remove('active','done');
+    if(i<n)document.getElementById('step'+i).classList.add('done');
+    if(i===n)document.getElementById('step'+i).classList.add('active');
+  }
+}
+function handlePhotoSelect(e){
+  const file=e.target.files[0];if(!file)return;
+  photoFile=file;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=document.getElementById('photoPreview');
+    img.src=ev.target.result;img.style.display='block';
+    document.getElementById('photoCameraIcon').style.display='none';
+    document.getElementById('photoText').style.display='none';
+  };
+  reader.readAsDataURL(file);
+}
+function handleSkillInput(e){
+  if(e.key==='Enter'||e.key===','){
+    e.preventDefault();
+    const val=e.target.value.trim().replace(',','');
+    if(val)addSkill(val);
+    e.target.value='';
+  }
+}
+function addSkill(s){
+  if(profileSkills.includes(s))return;
+  profileSkills.push(s);
+  renderSkillTags();
+}
+function removeSkill(s){profileSkills=profileSkills.filter(x=>x!==s);renderSkillTags();}
+function renderSkillTags(){
+  const wrap=document.getElementById('skillsWrap');
+  const input=document.getElementById('skillInput');
+  wrap.innerHTML='';
+  profileSkills.forEach(s=>{
+    const chip=document.createElement('span');
+    chip.className='skill-tag-chip';
+    chip.innerHTML=`${s}<button onclick="removeSkill('${s}')">×</button>`;
+    wrap.appendChild(chip);
+  });
+  wrap.appendChild(input);
+}
+function pickContact(type,el){
+  contactType=type;
+  document.querySelectorAll('.contact-opt').forEach(o=>o.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('contactPhoneField').style.display=type==='phone'?'block':'none';
+  document.getElementById('contactTelegramField').style.display=type==='telegram'?'block':'none';
+}
+
+async function finishProfileSetup(){
+  const btn=document.getElementById('finishSetupBtn');
+  btn.innerHTML='<div class="spinner"></div> Saving…';btn.disabled=true;
+  const {db,doc,setDoc,serverTimestamp,storage,ref,uploadBytes,getDownloadURL}=window._fb;
+  const uid=window._currentUser?.uid;if(!uid)return;
+  try{
+    let photoURL=null;
+    if(photoFile){
+      try{
+        const storageRef=ref(storage,`avatars/${uid}`);
+        await uploadBytes(storageRef,photoFile);
+        photoURL=await getDownloadURL(storageRef);
+      }catch(e){console.log('Photo upload failed:',e);}
+    }
+    const profile={
+      displayName:document.getElementById('ps1Name').value.trim()||window._userProfile?.displayName||window._currentUser.displayName||'User',
+      location:document.getElementById('ps1Location').value.trim()||'Ethiopia',
+      skills:profileSkills,
+      hourlyRate:document.getElementById('ps2Rate').value||'',
+      phone:contactType==='phone'?document.getElementById('ps3Phone').value.trim():'',
+      telegram:contactType==='telegram'?document.getElementById('ps3Telegram').value.trim():'',
+      bio:document.getElementById('ps4Bio').value.trim(),
+      portfolio:document.getElementById('ps4Portfolio').value.trim(),
+      profileComplete:true,
+      updatedAt:serverTimestamp()
+    };
+    if(photoURL)profile.photoURL=photoURL;
+    await setDoc(doc(db,'users',uid),profile,{merge:true});
+    window._userProfile={...window._userProfile,...profile};
+    showToast('Profile saved! Welcome to eiverr 🎉');
+    enterHomePage(window._userProfile);
+  }catch(e){
+    showToast('Error saving profile: '+e.message,'red');
+  }
+  btn.innerHTML='Finish Setup 🎉';btn.disabled=false;
+}
+function skipProfileSetup(){
+  if(window._userProfile){enterHomePage(window._userProfile);}
+  else{showPage('landingPage');}
+}
+
+/* ── Profile Edit ── */
+let epSkills=[];
+function populateProfileEdit(){
+  const p=window._userProfile||{};
+  document.getElementById('epFirst').value=(p.displayName||'').split(' ')[0]||'';
+  document.getElementById('epLast').value=(p.displayName||'').split(' ').slice(1).join(' ')||'';
+  document.getElementById('epLocation').value=p.location||'';
+  document.getElementById('epRate').value=p.hourlyRate||'';
+  document.getElementById('epBio').value=p.bio||'';
+  document.getElementById('epPhone').value=p.phone||'';
+  document.getElementById('epTelegram').value=p.telegram||'';
+  document.getElementById('epPortfolio').value=p.portfolio||'';
+  epSkills=[...(p.skills||[])];
+  renderEpSkillTags();
+  if(p.photoURL){
+    document.getElementById('profilePageImg').src=p.photoURL;
+    document.getElementById('profilePageImg').style.display='block';
+    document.getElementById('profilePageInitial').style.display='none';
+  }
+}
+function handleEpSkillInput(e){
+  if(e.key==='Enter'||e.key===','){
+    e.preventDefault();
+    const val=e.target.value.trim().replace(',','');
+    if(val&&!epSkills.includes(val))epSkills.push(val);
+    e.target.value='';
+    renderEpSkillTags();
+  }
+}
+function renderEpSkillTags(){
+  const wrap=document.getElementById('epSkillsWrap');
+  const input=document.getElementById('epSkillInput');
+  wrap.innerHTML='';
+  epSkills.forEach(s=>{
+    const chip=document.createElement('span');
+    chip.className='skill-tag-chip';
+    chip.innerHTML=`${s}<button onclick="epSkills=epSkills.filter(x=>x!=='${s}');renderEpSkillTags()">×</button>`;
+    wrap.appendChild(chip);
+  });
+  wrap.appendChild(input);
+}
+async function handleProfilePhotoChange(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    document.getElementById('profilePageImg').src=ev.target.result;
+    document.getElementById('profilePageImg').style.display='block';
+    document.getElementById('profilePageInitial').style.display='none';
+  };
+  reader.readAsDataURL(file);
+  // Upload
+  const {storage,ref,uploadBytes,getDownloadURL,db,doc,updateDoc}=window._fb;
+  const uid=window._currentUser?.uid;if(!uid)return;
+  try{
+    const storageRef=ref(storage,`avatars/${uid}`);
+    await uploadBytes(storageRef,file);
+    const url=await getDownloadURL(storageRef);
+    await updateDoc(doc(db,'users',uid),{photoURL:url});
+    if(window._userProfile)window._userProfile.photoURL=url;
+    document.getElementById('navAvatar').src=url;
+    document.getElementById('navAvatar').style.display='block';
+    document.getElementById('avatarInitial').style.display='none';
+    showToast('Photo updated!');
+  }catch(e){showToast('Photo upload failed','red');}
+}
+async function saveProfile(){
+  if(!window._currentUser)return;
+  const {db,doc,updateDoc,serverTimestamp}=window._fb;
+  const uid=window._currentUser.uid;
+  const first=document.getElementById('epFirst').value.trim();
+  const last=document.getElementById('epLast').value.trim();
+  const displayName=`${first} ${last}`.trim();
+  const update={
+    displayName,
+    location:document.getElementById('epLocation').value.trim(),
+    hourlyRate:document.getElementById('epRate').value,
+    bio:document.getElementById('epBio').value.trim(),
+    skills:epSkills,
+    phone:document.getElementById('epPhone').value.trim(),
+    telegram:document.getElementById('epTelegram').value.trim(),
+    portfolio:document.getElementById('epPortfolio').value.trim(),
+    profileComplete:true,updatedAt:serverTimestamp()
+  };
+  try{
+    await updateDoc(doc(db,'users',uid),update);
+    window._userProfile={...window._userProfile,...update};
+    showToast('Profile saved! ✓');
+    // Refresh home page state
+    document.getElementById('menuName').textContent=displayName;
+    document.getElementById('sidebarName').textContent=displayName;
+    document.getElementById('heroUserName').textContent=first;
+  }catch(e){showToast('Error: '+e.message,'red');}
+}
+
+/* ── Modals ── */
+function openModal(id){document.getElementById(id).classList.add('show');document.body.style.overflow='hidden';}
+function closeModal(id){document.getElementById(id).classList.remove('show');document.body.style.overflow='';}
+function closeAllModals(){document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('show'));document.body.style.overflow='';}
+document.querySelectorAll('.modal-overlay').forEach(m=>{
+  m.addEventListener('click',e=>{if(e.target===m)closeModal(m.id);});
+});
+
+// Dots animation
+let dotIdx=0;
+setInterval(()=>{
+  const dots=document.querySelectorAll('.auth-dot');
+  dots.forEach(d=>d.classList.remove('on'));
+  dotIdx=(dotIdx+1)%dots.length;
+  dots[dotIdx].classList.add('on');
+},3000);
+</script>
+
+
+/* ── Language Toggle (English / Amharic) ── */
+let currentLang = 'en';
+const translations = {
+  en: {
+    'Find Work': 'Find Work',
+    'Post Jobs': 'Post Jobs',
+    'Log In': 'Log In',
+    'Sign Up': 'Sign Up',
+    'hire-best': 'Hire the best.',
+    'earn-etb': 'Earn in ETB.',
+    'search-placeholder': 'Search skills (e.g., Flutter, Logo Design, Amharic Writing…)',
+    'hero-desc': 'Connecting Ethiopian businesses with top local talent — securely, fast, in Ethiopian Birr.',
+  },
+  am: {
+    'Find Work': 'ሥራ ፈልግ',
+    'Post Jobs': 'ሥራ አቅርብ',
+    'Log In': 'ግባ',
+    'Sign Up': 'ተመዝገብ',
+    'hire-best': 'ምርጦቹን ቅጠሩ።',
+    'earn-etb': 'በብር ያግኙ።',
+    'search-placeholder': 'ክህሎት ፈልግ (ለምሳሌ ፍልተር፣ የሎጎ ዲዛይን…)',
+    'hero-desc': 'ኢትዮጵያዊ ድርጅቶችን ከምርጥ ሙያዊ ባለሙያዎች ጋር ያገናኛሉ።',
+  }
+};
+function toggleLang(btn) {
+  document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  currentLang = btn.dataset.lang || 'en';
+}
+
+<script>
+// ── Service Worker (PWA offline support) ──
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(r => console.log('SW registered:', r.scope))
+      .catch(e => console.log('SW error:', e));
+  });
+}
+</script>
+</body>
+</html>
